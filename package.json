@@ -1,5 +1,9 @@
 {
   "name": "nestjs-devtools",
+  "author": {
+    "name": "Pourya Zardosht",
+    "email": "pooriyazardoosht.812@gmail.com"
+  },
   "displayName": "nestjs-devtools",
   "description": "",
   "version": "0.0.1",
