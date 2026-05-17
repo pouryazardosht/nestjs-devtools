@@ -66,8 +66,7 @@
       },
       {
         "command": "nestjs-log-helper.moduleSearcher",
-        "key": "cmd+l cmd+m",
-        "when": "editorTextFocus && editorLangId =~ /^typescript$|^javascript$/"
+        "key": "cmd+l cmd+m"
       }
     ]
   },
