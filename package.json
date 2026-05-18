@@ -45,37 +45,53 @@
       {
         "command": "nestjs-log-helper.moduleSearcher",
         "title": "NestJS Devtools: Open Module Files"
+      },
+      {
+        "command": "nestjs-log-helper.searchModuleFiles",
+        "title": "NestJS Devtools: Search Module Files"
       }
     ],
     "keybindings": [
       {
         "command": "nestjs-log-helper.insertDebugLog",
-        "key": "cmd+l cmd+d",
-        "when": "editorTextFocus && editorLangId =~ /^typescript$|^javascript$/"
+        "key": "ctrl+l ctrl+d",
+        "mac": "cmd+l cmd+d",
+        "when": "editorTextFocus"
       },
       {
         "command": "nestjs-log-helper.insertLogLog",
-        "key": "cmd+l cmd+l",
-        "when": "editorTextFocus && editorLangId =~ /^typescript$|^javascript$/"
+        "key": "ctrl+l ctrl+l",
+        "mac": "cmd+l cmd+l",
+        "when": "editorTextFocus"
       },
       {
         "command": "nestjs-log-helper.insertWarnLog",
-        "key": "cmd+l cmd+w",
-        "when": "editorTextFocus && editorLangId =~ /^typescript$|^javascript$/"
+        "key": "ctrl+l ctrl+w",
+        "mac": "cmd+l cmd+w",
+        "when": "editorTextFocus"
       },
       {
         "command": "nestjs-log-helper.insertErrorLog",
-        "key": "cmd+l cmd+e",
-        "when": "editorTextFocus && editorLangId =~ /^typescript$|^javascript$/"
+        "key": "ctrl+l ctrl+e",
+        "mac": "cmd+l cmd+e",
+        "when": "editorTextFocus"
       },
       {
         "command": "nestjs-log-helper.insertVerboseLog",
-        "key": "cmd+l cmd+v",
-        "when": "editorTextFocus && editorLangId =~ /^typescript$|^javascript$/"
+        "key": "ctrl+l ctrl+v",
+        "mac": "cmd+l cmd+v",
+        "when": "editorTextFocus"
       },
       {
         "command": "nestjs-log-helper.moduleSearcher",
-        "key": "cmd+l cmd+m"
+        "key": "ctrl+l ctrl+m",
+        "mac": "cmd+l cmd+m"
+      },
+      {
+        "command": "nestjs-log-helper.searchModuleFiles",
+        "key": "ctrl+l ctrl+k",
+        "mac": "cmd+l cmd+k",
+        "when": "editorTextFocus"
       }
     ]
   },

@@ -1,15 +1,69 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { NEST_TYPES } from "../constants";
+import { NestType } from "../constants";
+import { findAllModuleFiles } from "./searchModuleFiles";
 
-// Custom QuickPickItem that holds the shortcut and URI
 interface FileQuickPickItem extends vscode.QuickPickItem {
-  shortcut: string;
-  uri: vscode.Uri;
+  shortcut?: string;
+  uri?: vscode.Uri;
+}
+
+function buildGroupedItems(
+  files: (NestType & {
+    uri: vscode.Uri;
+    relativePath: string;
+    fileName: string;
+  })[],
+): FileQuickPickItem[] {
+  const categoryOrder = [
+    "Core NestJS",
+    "Entities",
+    "DTOs",
+    "Enums",
+    "Interfaces",
+    "Other",
+    "Other Files",
+  ];
+
+  const sorted = files.sort((a, b) => {
+    const idxA = categoryOrder.indexOf(a.category);
+    const idxB = categoryOrder.indexOf(b.category);
+    if (idxA === -1) {
+      return 1;
+    }
+    if (idxB === -1) {
+      return -1;
+    }
+    return idxA - idxB;
+  });
+
+  const items: FileQuickPickItem[] = [];
+  let lastCategory = "";
+
+  for (const file of sorted) {
+    if (file.category !== lastCategory) {
+      items.push({
+        label: `── ${file.category} ──`,
+        kind: vscode.QuickPickItemKind.Separator,
+      });
+      lastCategory = file.category;
+    }
+
+    const shortcutHint = file.shortcut
+      ? ` (${file.shortcut.toUpperCase()})`
+      : "";
+    items.push({
+      label: `${file.emoji}  ${file.fileName}`,
+      description: `${file.typeLabel}${shortcutHint}  |  ${file.relativePath}`,
+      shortcut: file.shortcut || undefined,
+      uri: file.uri,
+    });
+  }
+
+  return items;
 }
 
 export async function moduleSearcherCommand() {
-  // 1. Find all *.module.ts files
   const moduleFiles = await vscode.workspace.findFiles(
     "**/*.module.ts",
     "**/node_modules/**",
@@ -19,7 +73,6 @@ export async function moduleSearcherCommand() {
     return;
   }
 
-  // 2. Build module items (styled)
   const moduleItems = moduleFiles.map((file) => {
     const relativePath = vscode.workspace.asRelativePath(file);
     const base = path.basename(relativePath, ".module.ts");
@@ -37,109 +90,52 @@ export async function moduleSearcherCommand() {
     placeHolder: "Select a NestJS module…",
     matchOnDescription: true,
   });
-  if (!selectedModule) return;
-
-  // 3. Find related files with the same base name
-  const base = selectedModule.base;
-  const moduleDir = path.dirname(selectedModule.file.fsPath);
-  const relatedFiles: {
-    typeLabel: string;
-    shortcut: string;
-    emoji: string;
-    uri: vscode.Uri;
-    relativePath: string;
-  }[] = [];
-
-  for (const nestType of NEST_TYPES) {
-    // Try same directory first
-    const pattern = new vscode.RelativePattern(
-      moduleDir,
-      `${base}.${nestType.suffix}.ts`,
-    );
-    const found = await vscode.workspace.findFiles(pattern, null, 1);
-    if (found.length > 0) {
-      relatedFiles.push({
-        ...nestType,
-        uri: found[0],
-        relativePath: vscode.workspace.asRelativePath(found[0]),
-      });
-    } else {
-      // Fallback: search entire workspace
-      const globalPattern = `**/${base}.${nestType.suffix}.ts`;
-      const globalFound = await vscode.workspace.findFiles(
-        globalPattern,
-        "**/node_modules/**",
-        1,
-      );
-      if (globalFound.length > 0) {
-        relatedFiles.push({
-          ...nestType,
-          uri: globalFound[0],
-          relativePath: vscode.workspace.asRelativePath(globalFound[0]),
-        });
-      }
-    }
-  }
-
-  if (!relatedFiles.length) {
-    vscode.window.showInformationMessage(
-      `📁 No related files found for "${base}".`,
-    );
+  if (!selectedModule) {
     return;
   }
 
-  // 4. Build QuickPick items for files (beautiful UI)
-  const fileItems: FileQuickPickItem[] = relatedFiles.map((f) => ({
-    label: `${f.emoji}  (${f.shortcut.toUpperCase()}) ${f.typeLabel}`,
-    description: f.relativePath,
-    shortcut: f.shortcut,
-    uri: f.uri,
-  }));
+  const moduleDir = path.dirname(selectedModule.file.fsPath);
+  const allFiles = await findAllModuleFiles(moduleDir);
 
-  // 5. Custom QuickPick with instant shortcut handling
+  if (allFiles.length === 0) {
+    vscode.window.showInformationMessage("📁 No files found in this module.");
+    return;
+  }
+
+  const fileItems = buildGroupedItems(allFiles);
+
   const quickPick = vscode.window.createQuickPick<FileQuickPickItem>();
   quickPick.items = fileItems;
-  quickPick.placeholder = `Files of "${base}". Type a shortcut (e.g. S for Service) to open instantly…`;
+  quickPick.placeholder = `All files in "${selectedModule.base}". Type shortcut to open instantly.`;
   quickPick.matchOnDescription = true;
-
-  // Show the pick and wait for user action
   quickPick.show();
 
-  // We'll resolve the URI once the user chooses a file
   const selectedUri = await new Promise<vscode.Uri | undefined>((resolve) => {
-    // Handle normal selection (Enter / click)
     quickPick.onDidAccept(() => {
       const selected = quickPick.selectedItems[0];
-      resolve(selected?.uri);
+      resolve(selected.uri);
       quickPick.hide();
     });
 
-    // Handle shortcut keypress (instant open)
     quickPick.onDidChangeValue((value) => {
       const trimmed = value.trim().toLowerCase();
-      if (trimmed.length === 0) return;
-
-      // Find the item whose shortcut matches the current input
+      if (trimmed.length === 0) {
+        return;
+      }
       const match = fileItems.find(
-        (item) => item.shortcut.toLowerCase() === trimmed,
+        (item) => item.shortcut && item.shortcut.toLowerCase() === trimmed,
       );
       if (match) {
         resolve(match.uri);
         quickPick.hide();
       }
-      // If no match yet, the user might still be typing (e.g. "gw" for gateway)
-      // so we do nothing and let the filter continue
     });
 
-    // If the user closes the pick without choosing
-    quickPick.onDidHide(() => {
-      resolve(undefined);
-    });
+    quickPick.onDidHide(() => resolve(undefined));
   });
 
   quickPick.dispose();
 
-  // 6. Open the selected file
   if (selectedUri) {
     const doc = await vscode.workspace.openTextDocument(selectedUri);
     await vscode.window.showTextDocument(doc);
