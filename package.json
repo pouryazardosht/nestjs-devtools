@@ -4,10 +4,11 @@
     "name": "Pourya Zardosht",
     "email": "pooriyazardoosht.812@gmail.com"
   },
+  "icon": "./icon.png",
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
   "description": "",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.118.0"
   },
