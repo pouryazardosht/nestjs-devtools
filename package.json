@@ -8,7 +8,7 @@
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
   "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.118.0"
   },
