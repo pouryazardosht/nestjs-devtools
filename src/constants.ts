@@ -1,3 +1,5 @@
+import * as vscode from "vscode";
+
 export const LOGGER_METHODS: Record<string, string> = {
   debug: "🔍",
   log: "📝",
@@ -10,7 +12,6 @@ export interface NestType {
   suffix: string;
   typeLabel: string;
   shortcut: string;
-  emoji: string;
   category: string;
 }
 
@@ -20,136 +21,118 @@ export const NEST_TYPES: NestType[] = [
     suffix: "service",
     typeLabel: "Service",
     shortcut: "s",
-    emoji: "🛠️",
     category: "Core NestJS",
   },
   {
     suffix: "controller",
     typeLabel: "Controller",
     shortcut: "c",
-    emoji: "🎮",
     category: "Core NestJS",
   },
   {
     suffix: "module",
     typeLabel: "Module",
     shortcut: "m",
-    emoji: "📦",
     category: "Core NestJS",
   },
   {
     suffix: "guard",
     typeLabel: "Guard",
     shortcut: "g",
-    emoji: "🛡️",
     category: "Core NestJS",
   },
   {
     suffix: "gateway",
     typeLabel: "Gateway",
     shortcut: "gw",
-    emoji: "🌐",
     category: "Core NestJS",
   },
   {
     suffix: "interceptor",
     typeLabel: "Interceptor",
     shortcut: "i",
-    emoji: "🚧",
     category: "Core NestJS",
   },
-  {
-    suffix: "pipe",
-    typeLabel: "Pipe",
-    shortcut: "p",
-    emoji: "🔧",
-    category: "Core NestJS",
-  },
+  { suffix: "pipe", typeLabel: "Pipe", shortcut: "p", category: "Core NestJS" },
   {
     suffix: "filter",
     typeLabel: "Filter",
     shortcut: "f",
-    emoji: "🧹",
     category: "Core NestJS",
   },
   {
     suffix: "resolver",
     typeLabel: "Resolver",
     shortcut: "r",
-    emoji: "🧬",
     category: "Core NestJS",
   },
   {
     suffix: "decorator",
     typeLabel: "Decorator",
     shortcut: "d",
-    emoji: "🎨",
     category: "Core NestJS",
   },
-
   // --- Entities ---
   {
     suffix: "entity",
     typeLabel: "Entity",
     shortcut: "e",
-    emoji: "🗃️",
     category: "Entities",
   },
-
   // --- DTOs ---
-  {
-    suffix: "dto",
-    typeLabel: "DTO",
-    shortcut: "dt",
-    emoji: "📋",
-    category: "DTOs",
-  },
-
+  { suffix: "dto", typeLabel: "DTO", shortcut: "dt", category: "DTOs" },
   // --- Enums ---
-  {
-    suffix: "enum",
-    typeLabel: "Enum",
-    shortcut: "en",
-    emoji: "🎛️",
-    category: "Enums",
-  },
-
+  { suffix: "enum", typeLabel: "Enum", shortcut: "en", category: "Enums" },
   // --- Interfaces ---
   {
     suffix: "interface",
     typeLabel: "Interface",
     shortcut: "if",
-    emoji: "🔗",
     category: "Interfaces",
   },
-
-  // --- Other common NestJS files ---
+  // --- Other ---
   {
     suffix: "repository",
     typeLabel: "Repository",
     shortcut: "rp",
-    emoji: "🗄️",
     category: "Other",
   },
   {
     suffix: "middleware",
     typeLabel: "Middleware",
     shortcut: "mw",
-    emoji: "⚙️",
     category: "Other",
   },
   {
     suffix: "strategy",
     typeLabel: "Strategy",
     shortcut: "st",
-    emoji: "🧠",
     category: "Other",
   },
-  {
-    suffix: "spec",
-    typeLabel: "Test",
-    shortcut: "t",
-    emoji: "🧪",
-    category: "Other",
-  },
+  { suffix: "spec", typeLabel: "Test", shortcut: "t", category: "Other" },
 ];
+
+/**
+ * Returns NEST_TYPES merged with any custom types the user has
+ * configured under nestjs-devtools.customTypes in their settings.
+ * Custom types with the same suffix as a built-in type are ignored
+ * to prevent duplicate matches.
+ */
+export function getEffectiveNestTypes(): NestType[] {
+  const config = vscode.workspace.getConfiguration("nestjs-devtools");
+  const customTypes = config.get<NestType[]>("customTypes") ?? [];
+
+  const builtInSuffixes = new Set(NEST_TYPES.map((t) => t.suffix));
+
+  const validCustomTypes = customTypes.filter((t) => {
+    if (!t.suffix || !t.typeLabel || !t.shortcut || !t.category) {
+      return false; // skip malformed entries
+    }
+    if (builtInSuffixes.has(t.suffix)) {
+      return false; // don't override built-ins
+    }
+    return true;
+  });
+
+  return [...NEST_TYPES, ...validCustomTypes];
+}

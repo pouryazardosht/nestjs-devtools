@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
+import { generateNestFileCommand } from "./commands/generateNestFile";
 import { insertLoggerStatement } from "./commands/insertLogger";
 import { moduleSearcherCommand } from "./commands/moduleSearcher";
 import { searchAllModulesCommand } from "./commands/searchAllModules";
 import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
 import { LOGGER_METHODS } from "./constants";
 import { ModuleCodeLensProvider } from "./providers/moduleCodeLensProvider";
+import { ModuleTreeProvider } from "./providers/moduleTreeProvider";
 import { createModuleSearcherStatusBarItem } from "./statusBar";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -28,6 +30,18 @@ export function activate(context: vscode.ExtensionContext) {
     searchModuleFilesCommand,
   );
 
+  // Search all modules
+  const searchAllSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.searchAllModules",
+    searchAllModulesCommand,
+  );
+
+  // Generate NestJS file (from command palette or tree view right-click)
+  const generateFileSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.generateNestFile",
+    (item?) => generateNestFileCommand(item),
+  );
+
   // Status bar quick access
   createModuleSearcherStatusBarItem(context);
 
@@ -38,31 +52,39 @@ export function activate(context: vscode.ExtensionContext) {
     codeLensProvider,
   );
 
-  // Refresh CodeLens counts when files are created/deleted, since module
-  // contents can change without the .module.ts file itself being saved
+  // Sidebar Tree View
+  const treeProvider = new ModuleTreeProvider();
+  const treeSub = vscode.window.registerTreeDataProvider(
+    "nestjsModuleTree",
+    treeProvider,
+  );
+
+  // Refresh tree + CodeLens when .ts files are created or deleted
   const watcher = vscode.workspace.createFileSystemWatcher("**/*.ts");
-  watcher.onDidCreate(() => codeLensProvider.refresh());
-  watcher.onDidDelete(() => codeLensProvider.refresh());
+  watcher.onDidCreate(() => {
+    codeLensProvider.refresh();
+    treeProvider.refresh();
+  });
+  watcher.onDidDelete(() => {
+    codeLensProvider.refresh();
+    treeProvider.refresh();
+  });
+
+  // Refresh tree command (the inline button in the view title bar)
+  const refreshTreeSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.refreshModuleTree",
+    () => treeProvider.refresh(),
+  );
 
   context.subscriptions.push(
     ...loggerSubs,
     moduleSearcherSub,
     searchFilesSub,
+    searchAllSub,
+    generateFileSub,
     codeLensSub,
-    watcher,
-  );
-
-  const searchAllSub = vscode.commands.registerCommand(
-    "nestjs-log-helper.searchAllModules",
-    searchAllModulesCommand,
-  );
-
-  context.subscriptions.push(
-    ...loggerSubs,
-    moduleSearcherSub,
-    searchFilesSub,
-    searchAllSub, // add this
-    codeLensSub,
+    treeSub,
+    refreshTreeSub,
     watcher,
   );
 }

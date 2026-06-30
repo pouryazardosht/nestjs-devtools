@@ -1,16 +1,12 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { NEST_TYPES, NestType } from "../constants";
+import { getEffectiveNestTypes, NestType } from "../constants";
 import {
   buildGroupedItems,
   ModuleFile,
   showQuickPickWithShortcuts,
 } from "../utils/quickPickHelpers";
 
-/**
- * Returns possible file‑name suffixes for a NestJS type.
- * For types that often appear in plural form, we add an 's' variant.
- */
 function getPossibleSuffixes(nestType: NestType): string[] {
   const pluralTypes = [
     "guard",
@@ -29,10 +25,6 @@ function getPossibleSuffixes(nestType: NestType): string[] {
   return [nestType.suffix];
 }
 
-/**
- * Finds ALL .ts files under the module root directory,
- * categorises them by known NestJS suffixes.
- */
 export async function findAllModuleFiles(
   moduleRoot: string,
 ): Promise<ModuleFile[]> {
@@ -41,6 +33,9 @@ export async function findAllModuleFiles(
     "**/node_modules/**",
   );
 
+  // Read effective types fresh each call so settings changes apply
+  // immediately without reloading the extension.
+  const nestTypes = getEffectiveNestTypes();
   const results: ModuleFile[] = [];
 
   for (const file of allTsFiles) {
@@ -48,8 +43,7 @@ export async function findAllModuleFiles(
     const fileName = path.basename(file.fsPath);
 
     let matchedType: NestType | undefined;
-
-    for (const nestType of NEST_TYPES) {
+    for (const nestType of nestTypes) {
       const suffixes = getPossibleSuffixes(nestType);
       if (suffixes.some((suffix) => fileName.endsWith(`.${suffix}.ts`))) {
         matchedType = nestType;
@@ -69,7 +63,6 @@ export async function findAllModuleFiles(
         suffix: "",
         typeLabel: "File",
         shortcut: "",
-        emoji: "📄",
         category: "Other Files",
         uri: file,
         relativePath,
@@ -103,9 +96,7 @@ export async function searchModuleFilesCommand() {
         break;
       }
       const parent = path.dirname(dir);
-      if (parent === dir) {
-        break;
-      }
+      if (parent === dir) break;
       dir = parent;
     }
   }

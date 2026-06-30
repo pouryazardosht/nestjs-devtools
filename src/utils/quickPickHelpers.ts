@@ -9,6 +9,7 @@ export interface FileQuickPickItem extends vscode.QuickPickItem {
   moduleDir?: string;
 }
 
+// emoji field removed — icons now come entirely from TYPE_ICON_MAP
 export type ModuleFile = NestType & {
   uri: vscode.Uri;
   relativePath: string;
@@ -38,8 +39,6 @@ const CATEGORY_ORDER = [
   "Other Files",
 ];
 
-// Maps NestJS suffixes to VS Code's built-in codicons so rows render
-// using theme-aware icons instead of flat emoji.
 const TYPE_ICON_MAP: Record<string, string> = {
   service: "gear",
   controller: "symbol-method",
@@ -61,7 +60,7 @@ const TYPE_ICON_MAP: Record<string, string> = {
   spec: "beaker",
 };
 
-function iconForFile(suffix: string): vscode.ThemeIcon {
+export function iconForFile(suffix: string): vscode.ThemeIcon {
   const id = TYPE_ICON_MAP[suffix] ?? "file";
   return new vscode.ThemeIcon(id);
 }
@@ -123,11 +122,11 @@ export function buildGroupedItems(
   });
 
   let lastCategory = "";
-  let categoryCount = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    const file = sorted[i];
+  for (const file of sorted) {
     if (file.category !== lastCategory) {
-      categoryCount = sorted.filter((f) => f.category === file.category).length;
+      const categoryCount = sorted.filter(
+        (f) => f.category === file.category,
+      ).length;
       items.push({
         label: `${file.category} (${categoryCount})`,
         kind: vscode.QuickPickItemKind.Separator,
@@ -148,10 +147,6 @@ export function buildGroupedItems(
   return items;
 }
 
-/**
- * Shows a QuickPick with debounced shortcut-typing support and
- * button-click handling (e.g. "open file directly" on module rows).
- */
 export function showQuickPickWithShortcuts(
   items: FileQuickPickItem[],
   placeholder: string,
@@ -160,9 +155,7 @@ export function showQuickPickWithShortcuts(
   const quickPick = vscode.window.createQuickPick<FileQuickPickItem>();
   quickPick.items = items;
   quickPick.placeholder = placeholder;
-  if (title) {
-    quickPick.title = title;
-  }
+  if (title) quickPick.title = title;
   quickPick.matchOnDescription = true;
   quickPick.matchOnDetail = true;
   quickPick.show();
@@ -181,26 +174,19 @@ export function showQuickPickWithShortcuts(
 
     quickPick.onDidAccept(() => finish(quickPick.selectedItems[0]));
 
-    // Button click (e.g. "open module.ts directly" without drilling in)
     quickPick.onDidTriggerItemButton((event) => {
-      if (event.item.uri) {
-        finish({ ...event.item, isModule: false });
-      }
+      if (event.item.uri) finish({ ...event.item, isModule: false });
     });
 
     quickPick.onDidChangeValue((value) => {
       if (timeout) clearTimeout(timeout);
-
       const trimmed = value.trim().toLowerCase();
       if (trimmed.length === 0) return;
-
       timeout = setTimeout(() => {
         const match = items.find(
           (item) => item.shortcut && item.shortcut.toLowerCase() === trimmed,
         );
-        if (match) {
-          finish(match);
-        }
+        if (match) finish(match);
       }, 200);
     });
 

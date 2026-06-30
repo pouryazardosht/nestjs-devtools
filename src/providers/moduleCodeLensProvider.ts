@@ -76,11 +76,11 @@ export class ModuleCodeLensProvider implements vscode.CodeLensProvider {
 
     const nestedLabel =
       entry.nestedModuleCount > 0
-        ? `📦 ${entry.nestedModuleCount} nested module${entry.nestedModuleCount === 1 ? "" : "s"}, `
+        ? `${entry.nestedModuleCount} nested module${entry.nestedModuleCount === 1 ? "" : "s"}, `
         : "";
 
     const lens = new vscode.CodeLens(range, {
-      title: `${nestedLabel}📄 ${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"}`,
+      title: `$(package) ${nestedLabel}$(file) ${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"}`,
       command: "nestjs-log-helper.searchModuleFiles",
       tooltip: "Browse files in this module",
     });

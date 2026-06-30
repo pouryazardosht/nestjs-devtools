@@ -124,9 +124,9 @@ export async function moduleSearcherCommand() {
     const base = path.basename(relativePath, ".module.ts");
     const dir = path.dirname(relativePath) || ".";
     return {
-      label: base,
+      label: base, // no emoji prefix
       description: dir,
-      iconPath: new vscode.ThemeIcon("package"),
+      iconPath: new vscode.ThemeIcon("package"), // ThemeIcon instead
       file,
       base,
     };

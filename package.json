@@ -8,7 +8,7 @@
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
   "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -22,6 +22,136 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "NestJS Devtools",
+      "properties": {
+        "nestjs-devtools.customTypes": {
+          "type": "array",
+          "default": [],
+          "description": "Add custom NestJS file types to the module browser.",
+          "items": {
+            "type": "object",
+            "required": [
+              "suffix",
+              "typeLabel",
+              "shortcut",
+              "category"
+            ],
+            "properties": {
+              "suffix": {
+                "type": "string",
+                "description": "File suffix without extension (e.g. 'handler')"
+              },
+              "typeLabel": {
+                "type": "string",
+                "description": "Display label shown in the picker (e.g. 'Handler')"
+              },
+              "shortcut": {
+                "type": "string",
+                "description": "Shortcut letter(s) to jump to this file type (e.g. 'h')"
+              },
+              "category": {
+                "type": "string",
+                "description": "Category group shown as a separator (e.g. 'Other')"
+              }
+            }
+          }
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "nestjs-devtools-container",
+          "title": "NestJS DevTools",
+          "icon": "$(package)"
+        }
+      ]
+    },
+    "views": {
+      "nestjs-devtools-container": [
+        {
+          "id": "nestjsModuleTree",
+          "name": "Modules"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "nestjs-log-helper.refreshModuleTree",
+          "when": "view == nestjsModuleTree",
+          "group": "navigation"
+        },
+        {
+          "command": "nestjs-log-helper.generateNestFile",
+          "when": "view == nestjsModuleTree",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "nestjs-log-helper.generateNestFile",
+          "when": "view == nestjsModuleTree && viewItem == nestModule",
+          "group": "nestjsDevtools@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "when": "editorTextFocus && editorHasSelection",
+          "command": "nestjs-log-helper.insertLogLog",
+          "group": "9_nestjsDevtools@1"
+        },
+        {
+          "when": "editorTextFocus",
+          "command": "nestjs-log-helper.searchModuleFiles",
+          "group": "9_nestjsDevtools@2"
+        },
+        {
+          "when": "editorTextFocus",
+          "command": "nestjs-log-helper.generateNestFile",
+          "group": "9_nestjsDevtools@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "nestjs-log-helper.insertDebugLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertLogLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertWarnLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertErrorLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertVerboseLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.moduleSearcher"
+        },
+        {
+          "command": "nestjs-log-helper.searchModuleFiles"
+        },
+        {
+          "command": "nestjs-log-helper.searchAllModules"
+        },
+        {
+          "command": "nestjs-log-helper.generateNestFile"
+        },
+        {
+          "command": "nestjs-log-helper.refreshModuleTree",
+          "when": "false"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "nestjs-log-helper.insertDebugLog",
@@ -70,53 +200,20 @@
         "title": "Search All Modules",
         "category": "NestJS Devtools",
         "icon": "$(search)"
+      },
+      {
+        "command": "nestjs-log-helper.generateNestFile",
+        "title": "Generate NestJS File",
+        "category": "NestJS Devtools",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "nestjs-log-helper.refreshModuleTree",
+        "title": "Refresh Module Tree",
+        "category": "NestJS Devtools",
+        "icon": "$(refresh)"
       }
     ],
-    "menus": {
-      "editor/context": [
-        {
-          "when": "editorTextFocus && editorHasSelection",
-          "command": "nestjs-log-helper.insertLogLog",
-          "group": "9_nestjsDevtools@1"
-        },
-        {
-          "when": "editorTextFocus",
-          "command": "nestjs-log-helper.searchModuleFiles",
-          "group": "9_nestjsDevtools@2"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "nestjs-log-helper.insertDebugLog",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "nestjs-log-helper.insertLogLog",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "nestjs-log-helper.insertWarnLog",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "nestjs-log-helper.insertErrorLog",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "nestjs-log-helper.insertVerboseLog",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "nestjs-log-helper.moduleSearcher"
-        },
-        {
-          "command": "nestjs-log-helper.searchModuleFiles"
-        },
-        {
-          "command": "nestjs-log-helper.searchAllModules"
-        }
-      ]
-    },
     "keybindings": [
       {
         "command": "nestjs-log-helper.insertDebugLog",
@@ -163,6 +260,11 @@
         "command": "nestjs-log-helper.searchAllModules",
         "key": "ctrl+l ctrl+a",
         "mac": "cmd+l cmd+a"
+      },
+      {
+        "command": "nestjs-log-helper.generateNestFile",
+        "key": "ctrl+l ctrl+n",
+        "mac": "cmd+l cmd+n"
       }
     ]
   },
