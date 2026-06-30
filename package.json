@@ -4,11 +4,11 @@
     "name": "Pourya Zardosht",
     "email": "pooriyazardoosht.812@gmail.com"
   },
-  "icon": "./icon.png",
+  "icon": "icon.png",
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
-  "description": "",
-  "version": "0.0.3",
+  "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -25,33 +25,98 @@
     "commands": [
       {
         "command": "nestjs-log-helper.insertDebugLog",
-        "title": "NestJS Devtools: Insert debug log"
+        "title": "Insert Debug Log",
+        "category": "NestJS Devtools",
+        "icon": "$(debug)"
       },
       {
         "command": "nestjs-log-helper.insertLogLog",
-        "title": "NestJS Devtools: Insert log log"
+        "title": "Insert Log",
+        "category": "NestJS Devtools",
+        "icon": "$(note)"
       },
       {
         "command": "nestjs-log-helper.insertWarnLog",
-        "title": "NestJS Devtools: Insert warn log"
+        "title": "Insert Warning Log",
+        "category": "NestJS Devtools",
+        "icon": "$(warning)"
       },
       {
         "command": "nestjs-log-helper.insertErrorLog",
-        "title": "NestJS Devtools: Insert error log"
+        "title": "Insert Error Log",
+        "category": "NestJS Devtools",
+        "icon": "$(error)"
       },
       {
         "command": "nestjs-log-helper.insertVerboseLog",
-        "title": "NestJS Devtools: Insert verbose log"
+        "title": "Insert Verbose Log",
+        "category": "NestJS Devtools",
+        "icon": "$(megaphone)"
       },
       {
         "command": "nestjs-log-helper.moduleSearcher",
-        "title": "NestJS Devtools: Open Module Files"
+        "title": "Open Module Files",
+        "category": "NestJS Devtools",
+        "icon": "$(package)"
       },
       {
         "command": "nestjs-log-helper.searchModuleFiles",
-        "title": "NestJS Devtools: Search Module Files"
+        "title": "Search Files in Current Module",
+        "category": "NestJS Devtools",
+        "icon": "$(search-fuzzy)"
+      },
+      {
+        "command": "nestjs-log-helper.searchAllModules",
+        "title": "Search All Modules",
+        "category": "NestJS Devtools",
+        "icon": "$(search)"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorTextFocus && editorHasSelection",
+          "command": "nestjs-log-helper.insertLogLog",
+          "group": "9_nestjsDevtools@1"
+        },
+        {
+          "when": "editorTextFocus",
+          "command": "nestjs-log-helper.searchModuleFiles",
+          "group": "9_nestjsDevtools@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "nestjs-log-helper.insertDebugLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertLogLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertWarnLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertErrorLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.insertVerboseLog",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.moduleSearcher"
+        },
+        {
+          "command": "nestjs-log-helper.searchModuleFiles"
+        },
+        {
+          "command": "nestjs-log-helper.searchAllModules"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "nestjs-log-helper.insertDebugLog",
@@ -93,6 +158,11 @@
         "key": "ctrl+l ctrl+k",
         "mac": "cmd+l cmd+k",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "nestjs-log-helper.searchAllModules",
+        "key": "ctrl+l ctrl+a",
+        "mac": "cmd+l cmd+a"
       }
     ]
   },

@@ -1,66 +1,112 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { NestType } from "../constants";
+import {
+  BreadcrumbEntry,
+  buildGroupedItems,
+  NestedModuleInfo,
+  showQuickPickWithShortcuts,
+} from "../utils/quickPickHelpers";
 import { findAllModuleFiles } from "./searchModuleFiles";
 
-interface FileQuickPickItem extends vscode.QuickPickItem {
-  shortcut?: string;
-  uri?: vscode.Uri;
-}
+async function findNestedModules(
+  moduleDir: string,
+): Promise<NestedModuleInfo[]> {
+  const allModuleFiles = await vscode.workspace.findFiles(
+    new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
+    "**/node_modules/**",
+  );
 
-function buildGroupedItems(
-  files: (NestType & {
-    uri: vscode.Uri;
-    relativePath: string;
-    fileName: string;
-  })[],
-): FileQuickPickItem[] {
-  const categoryOrder = [
-    "Core NestJS",
-    "Entities",
-    "DTOs",
-    "Enums",
-    "Interfaces",
-    "Other",
-    "Other Files",
-  ];
-
-  const sorted = files.sort((a, b) => {
-    const idxA = categoryOrder.indexOf(a.category);
-    const idxB = categoryOrder.indexOf(b.category);
-    if (idxA === -1) {
-      return 1;
-    }
-    if (idxB === -1) {
-      return -1;
-    }
-    return idxA - idxB;
-  });
-
-  const items: FileQuickPickItem[] = [];
-  let lastCategory = "";
+  const nestedDirs: { uri: vscode.Uri; dir: string }[] = [];
+  const sorted = [...allModuleFiles]
+    .filter((file) => path.dirname(file.fsPath) !== moduleDir)
+    .sort((a, b) => a.fsPath.length - b.fsPath.length);
 
   for (const file of sorted) {
-    if (file.category !== lastCategory) {
-      items.push({
-        label: `── ${file.category} ──`,
-        kind: vscode.QuickPickItemKind.Separator,
-      });
-      lastCategory = file.category;
-    }
+    const dir = path.dirname(file.fsPath);
+    const isInsideExisting = nestedDirs.some((m) =>
+      dir.startsWith(m.dir + path.sep),
+    );
+    if (isInsideExisting) continue;
+    nestedDirs.push({ uri: file, dir });
+  }
 
-    const shortcutHint = file.shortcut
-      ? ` (${file.shortcut.toUpperCase()})`
-      : "";
-    items.push({
-      label: `${file.emoji}  ${file.fileName}`,
-      description: `${file.typeLabel}${shortcutHint}  |  ${file.relativePath}`,
-      shortcut: file.shortcut || undefined,
-      uri: file.uri,
+  const result: NestedModuleInfo[] = [];
+  for (const mod of nestedDirs) {
+    const files = await findAllModuleFiles(mod.dir);
+    result.push({
+      uri: mod.uri,
+      dir: mod.dir,
+      base: path.basename(mod.uri.fsPath, ".module.ts"),
+      fileCount: files.length,
     });
   }
 
-  return items;
+  return result;
+}
+
+function buildBreadcrumbTitle(
+  stack: BreadcrumbEntry[],
+  current: string,
+): string {
+  const trail = [...stack.map((s) => s.label), current];
+  return trail.join("  ›  ");
+}
+
+async function exploreModule(
+  moduleDir: string,
+  label: string,
+  stack: BreadcrumbEntry[],
+): Promise<void> {
+  const [allFiles, nestedModules] = await Promise.all([
+    findAllModuleFiles(moduleDir),
+    findNestedModules(moduleDir),
+  ]);
+
+  const ownFiles = allFiles.filter((file) => {
+    const fileDir = path.dirname(file.uri.fsPath);
+    return !nestedModules.some(
+      (mod) => fileDir === mod.dir || fileDir.startsWith(mod.dir + path.sep),
+    );
+  });
+
+  const parent = stack.length > 0 ? stack[stack.length - 1] : undefined;
+
+  if (ownFiles.length === 0 && nestedModules.length === 0 && !parent) {
+    vscode.window.showInformationMessage("📁 No files found in this module.");
+    return;
+  }
+
+  const items = buildGroupedItems(ownFiles, nestedModules, parent);
+  const totalCount = ownFiles.length + nestedModules.length;
+
+  const selection = await showQuickPickWithShortcuts(
+    items,
+    `${totalCount} item${totalCount === 1 ? "" : "s"} · type a shortcut to jump straight to a file`,
+    buildBreadcrumbTitle(stack, label),
+  );
+
+  if (!selection) return;
+
+  if (selection.isBack) {
+    const newStack = stack.slice(0, -1);
+    const target = stack[stack.length - 1];
+    await exploreModule(target.dir, target.label, newStack);
+    return;
+  }
+
+  if (selection.isModule && selection.moduleDir) {
+    const moduleBase = path.basename(selection.moduleDir);
+    await exploreModule(selection.moduleDir, moduleBase, [
+      ...stack,
+      { dir: moduleDir, label },
+    ]);
+    return;
+  }
+
+  if (selection.uri) {
+    const doc = await vscode.workspace.openTextDocument(selection.uri);
+    await vscode.window.showTextDocument(doc);
+  }
 }
 
 export async function moduleSearcherCommand() {
@@ -78,8 +124,9 @@ export async function moduleSearcherCommand() {
     const base = path.basename(relativePath, ".module.ts");
     const dir = path.dirname(relativePath) || ".";
     return {
-      label: `📦 ${base}`,
+      label: base,
       description: dir,
+      iconPath: new vscode.ThemeIcon("package"),
       file,
       base,
     };
@@ -87,57 +134,12 @@ export async function moduleSearcherCommand() {
   moduleItems.sort((a, b) => a.label.localeCompare(b.label));
 
   const selectedModule = await vscode.window.showQuickPick(moduleItems, {
-    placeHolder: "Select a NestJS module…",
+    title: "NestJS Modules",
+    placeHolder: "Select a module to browse…",
     matchOnDescription: true,
   });
-  if (!selectedModule) {
-    return;
-  }
+  if (!selectedModule) return;
 
   const moduleDir = path.dirname(selectedModule.file.fsPath);
-  const allFiles = await findAllModuleFiles(moduleDir);
-
-  if (allFiles.length === 0) {
-    vscode.window.showInformationMessage("📁 No files found in this module.");
-    return;
-  }
-
-  const fileItems = buildGroupedItems(allFiles);
-
-  const quickPick = vscode.window.createQuickPick<FileQuickPickItem>();
-  quickPick.items = fileItems;
-  quickPick.placeholder = `All files in "${selectedModule.base}". Type shortcut to open instantly.`;
-  quickPick.matchOnDescription = true;
-  quickPick.show();
-
-  const selectedUri = await new Promise<vscode.Uri | undefined>((resolve) => {
-    quickPick.onDidAccept(() => {
-      const selected = quickPick.selectedItems[0];
-      resolve(selected.uri);
-      quickPick.hide();
-    });
-
-    quickPick.onDidChangeValue((value) => {
-      const trimmed = value.trim().toLowerCase();
-      if (trimmed.length === 0) {
-        return;
-      }
-      const match = fileItems.find(
-        (item) => item.shortcut && item.shortcut.toLowerCase() === trimmed,
-      );
-      if (match) {
-        resolve(match.uri);
-        quickPick.hide();
-      }
-    });
-
-    quickPick.onDidHide(() => resolve(undefined));
-  });
-
-  quickPick.dispose();
-
-  if (selectedUri) {
-    const doc = await vscode.workspace.openTextDocument(selectedUri);
-    await vscode.window.showTextDocument(doc);
-  }
+  await exploreModule(moduleDir, selectedModule.base, []);
 }
