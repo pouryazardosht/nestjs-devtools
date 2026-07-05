@@ -8,7 +8,7 @@
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
   "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -111,6 +111,11 @@
           "when": "editorTextFocus",
           "command": "nestjs-log-helper.generateNestFile",
           "group": "9_nestjsDevtools@3"
+        },
+        {
+          "when": "editorTextFocus",
+          "command": "nestjs-log-helper.methodSearcher",
+          "group": "9_nestjsDevtools@4"
         }
       ],
       "commandPalette": [
@@ -149,6 +154,10 @@
         {
           "command": "nestjs-log-helper.refreshModuleTree",
           "when": "false"
+        },
+        {
+          "command": "nestjs-log-helper.methodSearcher",
+          "when": "editorTextFocus"
         }
       ]
     },
@@ -212,6 +221,12 @@
         "title": "Refresh Module Tree",
         "category": "NestJS Devtools",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "nestjs-log-helper.methodSearcher",
+        "title": "Search Methods in File",
+        "category": "NestJS Devtools",
+        "icon": "$(symbol-method)"
       }
     ],
     "keybindings": [
@@ -265,6 +280,12 @@
         "command": "nestjs-log-helper.generateNestFile",
         "key": "ctrl+l ctrl+n",
         "mac": "cmd+l cmd+n"
+      },
+      {
+        "command": "nestjs-log-helper.methodSearcher",
+        "key": "ctrl+l ctrl+j",
+        "mac": "cmd+l cmd+j",
+        "when": "editorTextFocus"
       }
     ]
   },

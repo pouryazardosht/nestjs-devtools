@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { generateNestFileCommand } from "./commands/generateNestFile";
 import { insertLoggerStatement } from "./commands/insertLogger";
+import { methodSearcherCommand } from "./commands/methodSearcher";
 import { moduleSearcherCommand } from "./commands/moduleSearcher";
 import { searchAllModulesCommand } from "./commands/searchAllModules";
 import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
@@ -82,6 +83,24 @@ export function activate(context: vscode.ExtensionContext) {
     searchFilesSub,
     searchAllSub,
     generateFileSub,
+    codeLensSub,
+    treeSub,
+    refreshTreeSub,
+    watcher,
+  );
+
+  const methodSearcherSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.methodSearcher",
+    methodSearcherCommand,
+  );
+
+  context.subscriptions.push(
+    ...loggerSubs,
+    moduleSearcherSub,
+    searchFilesSub,
+    searchAllSub,
+    generateFileSub,
+    methodSearcherSub, // add this
     codeLensSub,
     treeSub,
     refreshTreeSub,

@@ -5,94 +5,93 @@ All notable changes to **NestJS DevTools** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-07-05
+
+### Added
+
+- **Sidebar TreeView.** A new NestJS DevTools panel in the activity bar shows
+  the full module graph as an expandable tree — top-level modules at the root,
+  nested modules as collapsible children, and each module's own files grouped
+  by category underneath. Clicking a file opens it directly. The tree title bar
+  has two inline buttons: `$(refresh)` to manually refresh and `$(new-file)` to
+  generate a file. The tree refreshes automatically when any `.ts` file is
+  created or deleted in the workspace.
+
+- **Generate NestJS File command** (`Cmd+L Cmd+N` / `Ctrl+L Ctrl+N`). Scaffolds
+  a new NestJS file from a built-in template in two steps:
+  1. Pick the file type (Service, Controller, Module, Guard, Gateway,
+     Interceptor, Pipe, Filter, Resolver, Decorator, Entity, DTO, Enum,
+     Interface, Repository, Middleware, Strategy).
+  2. Enter a name — the file is created as `kebab-case.type.ts` in the
+     correct directory with a fully typed class body, proper NestJS imports,
+     and PascalCase class name derived from your input.
+     Custom types configured via `nestjs-devtools.customTypes` appear in the type
+     picker alongside built-in types. The command is also available via
+     right-click on any module node in the Sidebar TreeView, and in the editor
+     context menu. If the target file already exists you are prompted before
+     overwriting.
+
+- **Method Searcher** (`Cmd+L Cmd+J` / `Ctrl+L Ctrl+J`). Opens a compact
+  QuickPick listing every method in the active TypeScript/JavaScript file,
+  grouped into three sections:
+  - **Routes** — methods decorated with `@Get`, `@Post`, `@Put`, `@Patch`,
+    `@Delete`, `@Options`, `@Head`, `@All`, or `@Sse`. Each row shows the HTTP
+    method icon, the **full route URL** (controller prefix + method path, e.g.
+    `/blog/:id`), and the method name. Guards and interceptors appear in the
+    description column.
+  - **Decorated** — methods with non-HTTP decorators.
+  - **Methods** — plain undecorated methods, getters, setters, constructors,
+    and arrow function properties.
+
+  Features:
+  - Multi-line method signatures are handled correctly (the parser joins up to
+    6 lines, so params that span lines are never missed).
+  - The method the cursor is currently inside is pre-selected when the picker
+    opens.
+  - Arrowing through the list **live-previews** each method by scrolling the
+    editor to that line without closing the picker.
+  - Async methods are marked with `~`, private/protected with `$(lock)`.
+  - The title bar shows total method count and route count separately
+    (e.g. `blog.controller.ts  ·  10 methods  ·  9 routes`).
+  - Also available in the editor context menu and Command Palette.
+
+### Changed
+
+- **Icon consistency.** The top-level module picker and all nested module
+  entries now use `vscode.ThemeIcon` throughout — no raw emoji remaining in
+  any QuickPick view. CodeLens titles use codicon syntax (`$(package)`,
+  `$(file)`) instead of emoji for consistent rendering across themes.
+- **`emoji` field removed from `NestType` interface.** Icons are now derived
+  entirely from `TYPE_ICON_MAP` in `quickPickHelpers.ts`. Custom types
+  configured via `nestjs-devtools.customTypes` no longer need or accept an
+  `emoji` field.
+
 ## [0.1.2] - 2026-06-30
 
 ### Added
 
-- **Custom file types** via the `nestjs-devtools.customTypes` setting. Define
-  your own `.handler.ts`, `.validator.ts`, `.policy.ts` (or anything else) with
-  a `suffix`, `typeLabel`, `shortcut`, and `category` — they merge with the
-  built-in types at runtime, so you no longer need to fork the extension to
-  support non-standard NestJS file conventions. Entries that duplicate a
-  built-in suffix or are missing required fields are silently ignored.
-- **Auto-insert logger declaration.** When a log command is triggered inside a
-  class that has no `private readonly logger` property, the extension prompts
-  `No logger found in <Class>. Add it automatically?`. Accepting it:
-  1. Injects `Logger` into the existing `@nestjs/common` import — or creates
-     the import if `@nestjs/common` isn't imported at all.
-  2. Inserts `private readonly logger = new Logger(<Class>.name);` directly
-     after the class's opening brace, using a 2-space indent.
-  3. Then inserts the requested log statement on the line after the current
-     statement ends.
-- **Project-wide file search** across every module at once
-  (`Cmd+L Cmd+A` / `Ctrl+L Ctrl+A`). Files are deduplicated by absolute path
-  (so overlapping module folders don't produce duplicates) and grouped under
-  per-module separators sorted alphabetically by module name.
-- **Status bar quick access** item on the left side of the status bar showing
-  `$(extensions) Modules`. One click opens the module browser — no keybinding
-  or Command Palette needed.
-- **CodeLens above `@Module(...)`** in every `.module.ts` file, rendering as
-  `$(package) N nested modules, $(file) M files` (omitting the nested-modules
-  segment when zero). Clicking it triggers the module file browser for that
-  module. Counts are cached per module directory and invalidated through a
-  workspace-wide `*.ts` file-system watcher, so adding or deleting a file
-  refreshes the lens without re-saving the `.module.ts` file.
-- **Nested module navigation** in the module browser. Nested `*.module.ts`
-  files are detected, deduplicated by directory hierarchy (so a deeply nested
-  module isn't shown multiple times), and presented as their own selectable
-  entries above the file list — each showing its file count and a
-  `go-to-file` action button to open the `*.module.ts` file directly.
-  Selecting one drills into that module's file list, and a **Back** entry
-  (with the parent module's name) steps back up.
-- **Breadcrumb title** at the top of the module browser showing the full
-  navigation path (e.g. `blog  ›  comment`), so you always know where you are
-  in a nested module tree.
-- **Per-category file counts** in module browser separators — for example
-  `DTOs (3)` — so you can see at a glance how each group is populated.
+- Custom file types via the `nestjs-devtools.customTypes` setting.
+- Auto-insert logger declaration when `private readonly logger` is missing.
+- Project-wide file search across every module (`Cmd+L Cmd+A`).
+- Status bar quick access item.
+- CodeLens above `@Module(...)` with cached file and nested module counts.
+- Nested module navigation with drill-in, Back button, and breadcrumb title.
+- Per-category file counts in module browser separators.
 
 ### Changed
 
-- **ThemeIcons instead of emojis** across every QuickPick view. File types
-  now render with VS Code ThemeIcons (`gear` for Service, `symbol-method` for
-  Controller, `package` for Module, `shield` for Guard, `database` for
-  Entity, `symbol-structure` for DTO, etc.), and nested modules use a purple
-  `package` icon. They adapt cleanly to light, dark, and high-contrast
-  themes and are no longer locked to the emoji set.
-- **Forward brace-depth scan for log insertion.** The insertion point is now
-  found by walking forward from the selection's start line, tracking `{`/`}`
-  balance. The log is inserted on the first line after brace depth returns to
-  zero (or after a `;`/`,` if no brace was opened). This correctly handles
-  multi-line expressions, chained calls like
-  `this.repo.findOne({ where: ..., select: ... })`, multi-line `if`
-  conditions, and ternaries — instead of only inspecting the selected line.
-- **Upward brace-depth scan for enclosing class detection.**
-  `getEnclosingClassName` now tracks `{`/`}` balance while walking upward, so
-  a `class` keyword inside a decorator, an interface, or a nested object no
-  longer produces a false-positive class name in decorator-heavy files.
-- **Shortcut typing debounced.** The QuickPick's `onDidChangeValue` shortcut
-  matcher now waits 200 ms before resolving, preventing accidental early
-  matches when shortcuts share a prefix (e.g. typing `d` for Decorator no
-  longer pre-empts typing `dt` for DTO).
-- **Effective NestJS types are read fresh on every call** to
-  `findAllModuleFiles`, so changes to `nestjs-devtools.customTypes` apply
-  immediately without reloading the extension.
-- The module browser's "no files found" and "no modules found" empty states
-  now use information messages with an 📁 prefix for consistency.
+- ThemeIcons instead of emojis across every QuickPick view.
+- Forward brace-depth scan for correct log insertion point.
+- Upward brace-depth scan for enclosing class detection.
+- Shortcut typing debounced to 200 ms.
+- Effective NestJS types read fresh on every `findAllModuleFiles` call.
 
 ### Fixed
 
-- A module's own `.module.ts` file now correctly appears in its own file list
-  (previously it was filtered out because the module-search step treated it
-  as a "nested" module).
-- Files belonging to a nested module no longer leak into the parent module's
-  flat file list — `exploreModule` now filters out any file whose directory
-  is equal to, or nested under, a known nested-module directory.
-- Duplicate file entries across overlapping module folders in
-  `searchAllModules` are deduplicated by absolute path.
-- CodeLens counts no longer go stale when files are added or deleted outside
-  the `.module.ts` file — the file-system watcher now fires
-  `codeLensProvider.refresh()` on `onDidCreate` and `onDidDelete` for any
-  `*.ts` file.
+- Module's own `.module.ts` file now appears in its own file list.
+- Nested module files no longer leak into the parent module's file list.
+- Duplicate file entries in `searchAllModules` deduplicated by absolute path.
+- CodeLens counts refresh on file create/delete via file-system watcher.
 
 ## [0.1.1] - 2026-06-30
 
@@ -116,7 +115,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial release.
-- Logger helper commands: `debug`, `log`, `warn`, `error`, `verbose`, each
-  with a chord keybinding (`Cmd+L Cmd+D`, `Cmd+L Cmd+L`, etc.).
+- Logger helper commands: `debug`, `log`, `warn`, `error`, `verbose`.
 - Smart log insertion with automatic enclosing class name detection.
 - Module file searcher with category grouping and shortcut hints.
