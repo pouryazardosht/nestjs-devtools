@@ -84,6 +84,16 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "nestjsModuleTree",
+        "contents": "No NestJS modules found in this workspace.\n\nNestJS DevTools looks for `*.module.ts` files, a `@nestjs/*` dependency in package.json, or a nest-cli.json.\n\n[Learn about NestJS modules](https://docs.nestjs.com/modules)"
+      },
+      {
+        "view": "nestjsRoutesTree",
+        "contents": "No routes found in this workspace.\n\nRoutes are collected from `*.controller.ts` files in NestJS projects.\n\n[Learn about NestJS controllers](https://docs.nestjs.com/controllers)"
+      }
+    ],
     "menus": {
       "view/title": [
         {

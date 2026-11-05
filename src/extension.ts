@@ -68,8 +68,8 @@ export function activate(context: vscode.ExtensionContext) {
     (item?) => generateNestFileCommand(item),
   );
 
-  // Status bar quick access
-  createModuleSearcherStatusBarItem(context);
+  // Status bar quick access (hidden in non-NestJS workspaces)
+  void createModuleSearcherStatusBarItem(context);
 
   // CodeLens on .module.ts files
   const codeLensProvider = new ModuleCodeLensProvider();

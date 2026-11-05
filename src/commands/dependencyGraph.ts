@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { noNestProjectMessage } from "../utils/nestProject";
 
 interface GraphNode {
   id: string; // module base name, e.g. "users"
@@ -312,7 +313,7 @@ export async function showDependencyGraphCommand(
   const data = await graphService.getGraph();
 
   if (data.nodes.length === 0) {
-    vscode.window.showInformationMessage("📁 No NestJS modules found.");
+    vscode.window.showInformationMessage(await noNestProjectMessage());
     return;
   }
 

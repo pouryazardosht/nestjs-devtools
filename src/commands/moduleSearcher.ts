@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { noNestProjectMessage } from "../utils/nestProject";
 import {
   BreadcrumbEntry,
   buildGroupedItems,
@@ -115,7 +116,7 @@ export async function moduleSearcherCommand() {
     "**/node_modules/**",
   );
   if (!moduleFiles.length) {
-    vscode.window.showInformationMessage("📁 No NestJS modules found.");
+    vscode.window.showInformationMessage(await noNestProjectMessage());
     return;
   }
 

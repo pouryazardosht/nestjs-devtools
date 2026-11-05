@@ -5,6 +5,7 @@ import {
   iconForFileName,
   ModuleFile,
 } from "../utils/quickPickHelpers";
+import { noNestProjectMessage } from "../utils/nestProject";
 import {
   extractRoutes,
   HTTP_METHOD_ORDER,
@@ -171,7 +172,7 @@ export async function searchAllModulesCommand() {
   ]);
 
   if (routes.length === 0 && files.length === 0) {
-    vscode.window.showInformationMessage("📁 No NestJS module files found.");
+    vscode.window.showInformationMessage(await noNestProjectMessage());
     return;
   }
 
