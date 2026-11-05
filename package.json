@@ -50,6 +50,10 @@
                 "type": "string",
                 "description": "Shortcut letter(s) to jump to this file type (e.g. 'h')"
               },
+              "icon": {
+                "type": "string",
+                "description": "Optional VS Code codicon id for this file type (e.g. 'shield'). Falls back to a built-in match or the generic file icon."
+              },
               "category": {
                 "type": "string",
                 "description": "Category group shown as a separator (e.g. 'Other')"
@@ -164,69 +168,69 @@
     "commands": [
       {
         "command": "nestjs-log-helper.insertDebugLog",
-        "title": "Insert Debug Log",
+        "title": "Log · Debug",
         "category": "NestJS Devtools",
-        "icon": "$(debug)"
+        "icon": "$(bug)"
       },
       {
         "command": "nestjs-log-helper.insertLogLog",
-        "title": "Insert Log",
+        "title": "Log · Info",
         "category": "NestJS Devtools",
-        "icon": "$(note)"
+        "icon": "$(output)"
       },
       {
         "command": "nestjs-log-helper.insertWarnLog",
-        "title": "Insert Warning Log",
+        "title": "Log · Warn",
         "category": "NestJS Devtools",
         "icon": "$(warning)"
       },
       {
         "command": "nestjs-log-helper.insertErrorLog",
-        "title": "Insert Error Log",
+        "title": "Log · Error",
         "category": "NestJS Devtools",
         "icon": "$(error)"
       },
       {
         "command": "nestjs-log-helper.insertVerboseLog",
-        "title": "Insert Verbose Log",
+        "title": "Log · Verbose",
         "category": "NestJS Devtools",
-        "icon": "$(megaphone)"
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "nestjs-log-helper.searchModuleFiles",
+        "title": "Navigate · Current Module Files",
+        "category": "NestJS Devtools",
+        "icon": "$(folder-active)"
       },
       {
         "command": "nestjs-log-helper.moduleSearcher",
-        "title": "Open Module Files",
+        "title": "Navigate · Browse Modules",
         "category": "NestJS Devtools",
         "icon": "$(package)"
       },
       {
-        "command": "nestjs-log-helper.searchModuleFiles",
-        "title": "Search Files in Current Module",
-        "category": "NestJS Devtools",
-        "icon": "$(search-fuzzy)"
-      },
-      {
         "command": "nestjs-log-helper.searchAllModules",
-        "title": "Search All Modules",
+        "title": "Navigate · Search All Modules & Routes",
         "category": "NestJS Devtools",
         "icon": "$(search)"
       },
       {
+        "command": "nestjs-log-helper.methodSearcher",
+        "title": "Navigate · Methods in File",
+        "category": "NestJS Devtools",
+        "icon": "$(symbol-method)"
+      },
+      {
         "command": "nestjs-log-helper.generateNestFile",
-        "title": "Generate NestJS File",
+        "title": "Generate · NestJS File",
         "category": "NestJS Devtools",
         "icon": "$(new-file)"
       },
       {
         "command": "nestjs-log-helper.refreshModuleTree",
-        "title": "Refresh Module Tree",
+        "title": "Tree · Refresh",
         "category": "NestJS Devtools",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "nestjs-log-helper.methodSearcher",
-        "title": "Search Methods in File",
-        "category": "NestJS Devtools",
-        "icon": "$(symbol-method)"
       }
     ],
     "keybindings": [

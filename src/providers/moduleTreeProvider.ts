@@ -2,7 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { findAllModuleFiles } from "../commands/searchModuleFiles";
 import { getEffectiveNestTypes, NestType } from "../constants";
-import { iconForFile } from "../utils/quickPickHelpers";
+import { iconForFileName } from "../utils/quickPickHelpers";
 
 type TreeItemType = "module" | "file";
 
@@ -57,7 +57,7 @@ export class ModuleTreeItem extends vscode.TreeItem {
       const nestTypes = getEffectiveNestTypes();
       const matched = matchNestType(fileName, nestTypes);
 
-      this.iconPath = iconForFile(matched?.suffix ?? "");
+      this.iconPath = iconForFileName(fileName);
       this.contextValue = "nestFile";
       this.resourceUri = uri;
       this.description = matched?.typeLabel ?? "File";

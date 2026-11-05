@@ -13,6 +13,8 @@ export interface NestType {
   typeLabel: string;
   shortcut: string;
   category: string;
+  /** Optional codicon id (e.g. "shield"); only used by custom types. */
+  icon?: string;
 }
 
 export const NEST_TYPES: NestType[] = [

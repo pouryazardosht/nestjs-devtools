@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { getEffectiveNestTypes } from "../constants";
+import { iconForFile } from "../utils/quickPickHelpers";
 
 function toPascalCase(str: string): string {
   return str
@@ -238,25 +239,7 @@ export async function generateNestFileCommand(
     label: t.typeLabel,
     description: `.${t.suffix}.ts`,
     suffix: t.suffix,
-    iconPath: new vscode.ThemeIcon(
-      t.suffix === "service"
-        ? "gear"
-        : t.suffix === "controller"
-          ? "symbol-method"
-          : t.suffix === "module"
-            ? "package"
-            : t.suffix === "guard"
-              ? "shield"
-              : t.suffix === "dto"
-                ? "symbol-structure"
-                : t.suffix === "entity"
-                  ? "database"
-                  : t.suffix === "enum"
-                    ? "symbol-enum"
-                    : t.suffix === "interface"
-                      ? "symbol-interface"
-                      : "file",
-    ),
+    iconPath: iconForFile(t.suffix),
   }));
 
   const selectedType = await vscode.window.showQuickPick(typeItems, {

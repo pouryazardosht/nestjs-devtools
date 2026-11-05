@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { NestType } from "../constants";
+import { getEffectiveNestTypes, NestType } from "../constants";
 
 export interface FileQuickPickItem extends vscode.QuickPickItem {
   shortcut?: string;
@@ -7,6 +7,12 @@ export interface FileQuickPickItem extends vscode.QuickPickItem {
   isModule?: boolean;
   isBack?: boolean;
   moduleDir?: string;
+  /** 0-based line to jump to after opening (route items). */
+  line?: number;
+  /** Full route path (route items), for the copy button. */
+  routePath?: string;
+  /** HTTP verb (route items), for the copy button. */
+  httpMethod?: string;
 }
 
 // emoji field removed — icons now come entirely from TYPE_ICON_MAP
@@ -58,10 +64,73 @@ const TYPE_ICON_MAP: Record<string, string> = {
   middleware: "layers",
   strategy: "compass",
   spec: "beaker",
+  // --- app entry ---
+  main: "rocket",
+  bootstrap: "rocket",
+  // --- queue / event handlers ---
+  subscriber: "broadcast",
+  processor: "tools",
+  consumer: "cloud-download",
+  job: "zap",
+  queue: "server",
+  // --- scheduling ---
+  cron: "watch",
+  scheduler: "watch",
+  task: "tasklist",
+  // --- patterns / utilities ---
+  serializer: "symbol-key",
+  adapter: "combine",
+  provider: "plug",
+  factory: "clone",
+  helper: "wrench",
+  util: "wrench",
+  constant: "json",
+  constants: "json",
+  config: "settings-gear",
+  validation: "checklist",
+  schema: "symbol-field",
+  model: "symbol-class",
+  dataloader: "loading",
+  loader: "loading",
+  e2e: "browser",
 };
 
 export function iconForFile(suffix: string): vscode.ThemeIcon {
-  const id = TYPE_ICON_MAP[suffix] ?? "file";
+  const custom = getEffectiveNestTypes().find((t) => t.suffix === suffix);
+  const id = custom?.icon ?? TYPE_ICON_MAP[suffix] ?? "file";
+  return new vscode.ThemeIcon(id);
+}
+
+/**
+ * Extracts the file suffix from a file name, e.g. "user.helper.ts" → "helper".
+ * Returns "" for files without a suffix (module.ts, index.ts, main.ts, …).
+ */
+export function fileSuffixOf(fileName: string): string {
+  if (!fileName.endsWith(".ts")) return "";
+  const stem = fileName.slice(0, -3);
+  const lastDot = stem.lastIndexOf(".");
+  return lastDot === -1 ? "" : stem.slice(lastDot + 1);
+}
+
+/**
+ * Icon for a file based on its actual name suffix — works even for files
+ * whose suffix isn't a recognized NestJS type (helper, util, …).
+ */
+export function iconForFileName(fileName: string): vscode.ThemeIcon {
+  const suffix = fileSuffixOf(fileName);
+  if (!suffix) return new vscode.ThemeIcon("file");
+
+  const types = getEffectiveNestTypes();
+  const matched = types.find(
+    (t) => suffix === t.suffix || suffix === t.suffix + "s",
+  );
+  const singular = matched?.suffix ?? suffix.replace(/s$/, "");
+
+  const id =
+    matched?.icon ??
+    TYPE_ICON_MAP[suffix] ??
+    TYPE_ICON_MAP[singular] ??
+    "file";
   return new vscode.ThemeIcon(id);
 }
 
@@ -138,7 +207,7 @@ export function buildGroupedItems(
     items.push({
       label: file.fileName,
       description: `${file.typeLabel}${shortcutHint}`,
-      iconPath: iconForFile(file.suffix),
+      iconPath: iconForFileName(file.fileName),
       shortcut: file.shortcut || undefined,
       uri: file.uri,
     });
