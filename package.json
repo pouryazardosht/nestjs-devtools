@@ -10,7 +10,7 @@
   "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
   "version": "0.2.0",
   "engines": {
-    "vscode": "^1.118.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
@@ -409,7 +409,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.19",
-    "@types/vscode": "^1.118.0",
+    "@types/vscode": "1.85.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",
