@@ -354,7 +354,8 @@
       {
         "command": "nestjs-log-helper.moduleSearcher",
         "key": "ctrl+l ctrl+m",
-        "mac": "cmd+l cmd+m"
+        "mac": "cmd+l cmd+m",
+        "when": "!terminalFocus && !inputFocus"
       },
       {
         "command": "nestjs-log-helper.searchModuleFiles",
@@ -365,12 +366,14 @@
       {
         "command": "nestjs-log-helper.searchAllModules",
         "key": "ctrl+l ctrl+a",
-        "mac": "cmd+l cmd+a"
+        "mac": "cmd+l cmd+a",
+        "when": "!terminalFocus && !inputFocus"
       },
       {
         "command": "nestjs-log-helper.generateNestFile",
         "key": "ctrl+l ctrl+n",
-        "mac": "cmd+l cmd+n"
+        "mac": "cmd+l cmd+n",
+        "when": "!terminalFocus && !inputFocus"
       },
       {
         "command": "nestjs-log-helper.methodSearcher",
@@ -387,7 +390,8 @@
       {
         "command": "nestjs-log-helper.showDependencyGraph",
         "key": "ctrl+l ctrl+g",
-        "mac": "cmd+l cmd+g"
+        "mac": "cmd+l cmd+g",
+        "when": "!terminalFocus && !inputFocus"
       }
     ]
   },
