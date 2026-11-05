@@ -1,43 +1,12 @@
 import * as vscode from "vscode";
 import { LOGGER_METHODS } from "../constants";
 import { getEnclosingClassName } from "../utils/getEnclosingClassName";
+import { findInsertionPoint } from "../utils/insertionPoint";
 import {
   findClassOpeningBrace,
   findLoggerImportState,
   hasLoggerDeclaration,
 } from "../utils/loggerDeclaration";
-
-/**
- * Scans forward from the selection's start line to find the correct
- * insertion point after the current statement.
- */
-function findInsertionLine(
-  document: vscode.TextDocument,
-  startLine: number,
-): number {
-  let braceDepth = 0;
-  let sawOpenBrace = false;
-
-  for (let i = startLine; i < document.lineCount; i++) {
-    const text = document.lineAt(i).text;
-    const opens = (text.match(/\{/g) || []).length;
-    const closes = (text.match(/\}/g) || []).length;
-
-    if (opens > 0) sawOpenBrace = true;
-
-    braceDepth += opens;
-    braceDepth -= closes;
-
-    if (sawOpenBrace && braceDepth === 0) return i + 1;
-
-    if (!sawOpenBrace) {
-      const trimmed = text.trim();
-      if (trimmed.endsWith(";") || trimmed.endsWith(",")) return i + 1;
-    }
-  }
-
-  return startLine + 1;
-}
 
 /**
  * Finds the line number of the class declaration that encloses the
@@ -133,8 +102,6 @@ export function insertLoggerStatement(method: string) {
 
   const document = editor.document;
   const lineNumber = selection.start.line;
-  const lineText = document.lineAt(lineNumber).text;
-  const indentation = lineText.match(/^\s*/)?.[0] ?? "";
 
   const className = getEnclosingClassName(document, lineNumber);
 
@@ -143,9 +110,9 @@ export function insertLoggerStatement(method: string) {
     ? `${emoji} ${className} ~ ${selectedText}`
     : `${emoji} ${selectedText}`;
 
-  const logStatement = `${indentation}this.logger.${method}("${message}", ${selectedText});`;
-  const insertionLine = findInsertionLine(document, lineNumber);
-  const insertPosition = new vscode.Position(insertionLine, 0);
+  const insertion = findInsertionPoint(document, lineNumber);
+  const logStatement = `${insertion.indent}this.logger.${method}("${message}", ${selectedText});`;
+  const insertPosition = new vscode.Position(insertion.line + 1, 0);
 
   // Check if we need to auto-declare the logger
   const classLine = findEnclosingClassLine(document, lineNumber);
