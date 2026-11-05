@@ -1,11 +1,19 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { HTTP_METHOD_ORDER, httpMethodIcon, RouteInfo, extractRoutes } from "../utils/routeUtils";
+import { brandIcon } from "../utils/quickPickHelpers";
 
 type TreeItemType = "controller" | "route" | "empty";
 
 interface RouteCacheEntry {
   routes: RouteInfo[];
+  /** First @ApiTags value on the controller class, if any. */
+  tag?: string;
+}
+
+/** First @ApiTags('…') string on the controller class. */
+function parseApiTags(text: string): string | undefined {
+  return text.match(/@ApiTags?\s*\(\s*['"`]([^'"`]+)['"`]/)?.[1];
 }
 
 /**
@@ -26,6 +34,14 @@ export class RoutesTreeProvider
 
   /** controller fsPath → parsed routes */
   private cache = new Map<string, RouteCacheEntry>();
+
+  /**
+   * Sink for the view-level badge (TreeView.badge), wired in extension.ts.
+   * Shows the total route count (or the filtered match count while a
+   * filter is active). The stable API has no per-item badge, so
+   * controller counts use the item description instead.
+   */
+  badgeSink: ((badge: vscode.ViewBadge | undefined) => void) | undefined;
 
   /** Current in-memory filter (lowercased). */
   private filterText = "";
@@ -114,48 +130,69 @@ export class RoutesTreeProvider
 
     const filter = this.filterText.trim().toLowerCase();
     if (!filter) {
-      return sortedFiles.map(
-        (uri) => new RouteTreeItem(uri, "controller", undefined, uri.fsPath),
-      );
+      let total = 0;
+      const items: RouteTreeItem[] = [];
+      for (const uri of sortedFiles) {
+        const item = new RouteTreeItem(uri, "controller", undefined, uri.fsPath);
+        // Description: route count (parsed result comes from the per-file cache)
+        const { routes, tag } = await this.routesFor(uri.fsPath);
+        total += routes.length;
+        item.description = `${routes.length} route${routes.length === 1 ? "" : "s"}${tag ? ` · ${tag}` : ""}`;
+        items.push(item);
+      }
+      this.badgeSink?.({
+        value: total,
+        tooltip: `${total} route${total === 1 ? "" : "s"} in workspace`,
+      });
+      return items;
     }
 
     // Filter active: hide controllers with no matching routes.
     // Parse results come from the per-file cache, so this stays cheap.
     const items: RouteTreeItem[] = [];
+    let matching = 0;
     for (const uri of sortedFiles) {
-      const routes = await this.routesFor(uri.fsPath);
-      if (routes.some((r) => routeMatchesFilter(r, filter))) {
-        items.push(new RouteTreeItem(uri, "controller", undefined, uri.fsPath));
+      const { routes } = await this.routesFor(uri.fsPath);
+      const matches = routes.filter((r) => routeMatchesFilter(r, filter));
+      if (matches.length > 0) {
+        matching += matches.length;
+        const item = new RouteTreeItem(uri, "controller", undefined, uri.fsPath);
+        item.description = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
+        items.push(item);
       }
     }
+    this.badgeSink?.({
+      value: matching,
+      tooltip: `${matching} matching route${matching === 1 ? "" : "s"}`,
+    });
     return items.length > 0
       ? items
       : [new RouteTreeItem(undefined, "empty", undefined, undefined, `No routes matching "${this.filterText.trim()}"`)];
   }
 
-  /** Cache-or-parse a controller's routes. */
-  private async routesFor(controllerPath: string): Promise<RouteInfo[]> {
+  /** Cache-or-parse a controller's routes (plus its @ApiTags tag). */
+  private async routesFor(controllerPath: string): Promise<RouteCacheEntry> {
     let entry = this.cache.get(controllerPath);
     if (!entry) {
       try {
         const doc = await vscode.workspace.openTextDocument(controllerPath);
-        const routes = extractRoutes(
-          vscode.Uri.file(controllerPath),
-          doc.getText(),
-        );
-        entry = { routes };
+        const text = doc.getText();
+        entry = {
+          routes: extractRoutes(vscode.Uri.file(controllerPath), text),
+          tag: parseApiTags(text),
+        };
       } catch {
         entry = { routes: [] };
       }
       this.cache.set(controllerPath, entry);
     }
-    return entry.routes;
+    return entry;
   }
 
   private async getRoutesForController(
     controllerPath: string,
   ): Promise<RouteTreeItem[]> {
-    const routes = await this.routesFor(controllerPath);
+    const { routes } = await this.routesFor(controllerPath);
 
     const filter = this.filterText.trim().toLowerCase();
     const visible = filter
@@ -204,6 +241,9 @@ export class RouteTreeItem extends vscode.TreeItem {
       const base = path.basename(uri.fsPath, ".controller.ts");
       this.label = base;
       this.resourceUri = uri;
+      // Explicit icon — otherwise the file theme renders a generic/folder
+      // icon for the resourceUri
+      this.iconPath = brandIcon("server");
       this.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
       this.contextValue = "nestController";
       this.tooltip = vscode.workspace.asRelativePath(uri);
@@ -232,6 +272,7 @@ export class RouteTreeItem extends vscode.TreeItem {
 
     // empty
     this.label = filterLabel ?? "No routes found";
+    this.iconPath = brandIcon(filterLabel ? "circle-slash" : "info");
     this.contextValue = "empty";
   }
 }

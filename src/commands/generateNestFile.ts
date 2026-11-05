@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { getEffectiveNestTypes } from "../constants";
-import { iconForFile } from "../utils/quickPickHelpers";
+import { brandedTitle, iconForFile } from "../utils/quickPickHelpers";
 
 function toPascalCase(str: string): string {
   return str
@@ -206,6 +206,50 @@ export class ${toPascalCase(name)}Strategy extends PassportStrategy(Strategy) {
 `,
 };
 
+// Class-based types get a "should be defined" spec scaffold on request.
+// DTOs, enums, interfaces, decorators, entities and modules don't get specs.
+const SPEC_ELIGIBLE = new Set([
+  "service",
+  "controller",
+  "guard",
+  "gateway",
+  "interceptor",
+  "pipe",
+  "filter",
+  "resolver",
+  "repository",
+  "middleware",
+  "strategy",
+]);
+
+function buildSpecTemplate(suffix: string, kebabName: string): string {
+  const className = `${toPascalCase(kebabName)}${toPascalCase(suffix)}`;
+  const instanceVar = toCamelCase(`${kebabName} ${suffix}`);
+  // Controllers are bound under `controllers`, everything else under `providers`
+  const binding = suffix === "controller" ? "controllers" : "providers";
+
+  return `import { Test, TestingModule } from '@nestjs/testing';
+
+import { ${className} } from './${kebabName}.${suffix}';
+
+describe('${className}', () => {
+  let ${instanceVar}: ${className};
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      ${binding}: [${className}],
+    }).compile();
+
+    ${instanceVar} = module.get<${className}>(${className});
+  });
+
+  it('should be defined', () => {
+    expect(${instanceVar}).toBeDefined();
+  });
+});
+`;
+}
+
 export async function generateNestFileCommand(
   targetDirOrItem?: string | { moduleDir?: string },
 ) {
@@ -243,7 +287,7 @@ export async function generateNestFileCommand(
   }));
 
   const selectedType = await vscode.window.showQuickPick(typeItems, {
-    title: "Generate NestJS File",
+    title: brandedTitle("Generate NestJS File"),
     placeHolder: "Select a file type to generate…",
     matchOnDescription: true,
   });
@@ -251,7 +295,7 @@ export async function generateNestFileCommand(
 
   // Step 2: pick name
   const name = await vscode.window.showInputBox({
-    title: `Generate ${selectedType.label}`,
+    title: brandedTitle(`Generate ${selectedType.label}`),
     placeHolder: `e.g. "user" → user.${selectedType.suffix}.ts`,
     prompt: `Enter a name for the new ${selectedType.label.toLowerCase()}`,
     validateInput: (value) => {
@@ -293,4 +337,35 @@ export async function generateNestFileCommand(
   const doc = await vscode.workspace.openTextDocument(fileUri);
   await vscode.window.showTextDocument(doc);
   vscode.window.setStatusBarMessage(`✅ Generated ${fileName}`, 3000);
+
+  // Step 5: offer a matching spec scaffold for class-based types
+  if (!SPEC_ELIGIBLE.has(selectedType.suffix)) return;
+
+  const makeSpec = await vscode.window.showInformationMessage(
+    `Generated ${fileName} — also create a matching spec?`,
+    "Create spec",
+    "No",
+  );
+  if (makeSpec !== "Create spec") return;
+
+  const specName = `${kebabName}.${selectedType.suffix}.spec.ts`;
+  const specUri = vscode.Uri.file(path.join(dir, specName));
+
+  try {
+    await vscode.workspace.fs.stat(specUri);
+    const overwrite = await vscode.window.showWarningMessage(
+      `${specName} already exists. Overwrite?`,
+      "Yes",
+      "No",
+    );
+    if (overwrite !== "Yes") return;
+  } catch {
+    // Spec doesn't exist — good, proceed
+  }
+
+  await vscode.workspace.fs.writeFile(
+    specUri,
+    Buffer.from(buildSpecTemplate(selectedType.suffix, kebabName), "utf-8"),
+  );
+  vscode.window.setStatusBarMessage(`✅ Generated ${specName}`, 3000);
 }

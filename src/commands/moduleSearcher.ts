@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { noNestProjectMessage } from "../utils/nestProject";
+import { brandIcon, brandedTitle } from "../utils/quickPickHelpers";
 import {
   BreadcrumbEntry,
   buildGroupedItems,
@@ -50,7 +51,7 @@ function buildBreadcrumbTitle(
   current: string,
 ): string {
   const trail = [...stack.map((s) => s.label), current];
-  return trail.join("  ›  ");
+  return brandedTitle(trail.join("  ›  "));
 }
 
 async function exploreModule(
@@ -127,7 +128,7 @@ export async function moduleSearcherCommand() {
     return {
       label: base, // no emoji prefix
       description: dir,
-      iconPath: new vscode.ThemeIcon("package"), // ThemeIcon instead
+      iconPath: brandIcon("package"),
       file,
       base,
     };
@@ -135,7 +136,7 @@ export async function moduleSearcherCommand() {
   moduleItems.sort((a, b) => a.label.localeCompare(b.label));
 
   const selectedModule = await vscode.window.showQuickPick(moduleItems, {
-    title: "NestJS Modules",
+    title: brandedTitle("NestJS Modules"),
     placeHolder: "Select a module to browse…",
     matchOnDescription: true,
   });

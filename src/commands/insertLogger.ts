@@ -107,14 +107,36 @@ export function insertLoggerStatement(method: string) {
 
   const className = getEnclosingClassName(document, lineNumber);
 
+  // Message format is user-configurable (nestjs-devtools.logTemplate)
+  const template =
+    vscode.workspace
+      .getConfiguration("nestjs-devtools")
+      .get<string>("logTemplate") ?? "{emoji} {class} ~ {variable}";
   const emoji = LOGGER_METHODS[method] || "🔍";
-  const message = className
-    ? `${emoji} ${className} ~ ${selectedText}`
-    : `${emoji} ${selectedText}`;
+  const message = template
+    .replace(/\{emoji\}/g, emoji)
+    .replace(/\{class\}/g, className ?? "")
+    .replace(/\{variable\}/g, selectedText)
+    .replace(/ {2,}/g, " ")
+    .trim();
+  // Escape quotes/backslashes so a user template can't break the string
+  const escapedMessage = message
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
 
   const insertion = findInsertionPoint(document, lineNumber);
-  const logStatement = `${insertion.indent}this.logger.${method}("${message}", ${selectedText});`;
-  const insertPosition = new vscode.Position(insertion.line + 1, 0);
+  const logStatement = `${insertion.indent}this.logger.${method}("${escapedMessage}", ${selectedText});`;
+  const insertLog = (editBuilder: vscode.TextEditorEdit): void => {
+    if (insertion.at) {
+      // Empty-bodied signature (constructor() {}) — inside the braces
+      editBuilder.insert(insertion.at, `\n${logStatement}`);
+    } else {
+      editBuilder.insert(
+        new vscode.Position(insertion.line + 1, 0),
+        `${logStatement}\n`,
+      );
+    }
+  };
 
   // Check if we need to auto-declare the logger
   const classLine = findEnclosingClassLine(document, lineNumber);
@@ -143,7 +165,7 @@ export function insertLoggerStatement(method: string) {
                 editBuilder,
               );
               // Insert the log statement
-              editBuilder.insert(insertPosition, logStatement + "\n");
+              insertLog(editBuilder);
             })
             .then((success) => {
               if (success) {
@@ -157,7 +179,7 @@ export function insertLoggerStatement(method: string) {
           // User said No — just insert the log statement anyway
           editor
             .edit((editBuilder) => {
-              editBuilder.insert(insertPosition, logStatement + "\n");
+              insertLog(editBuilder);
             })
             .then((success) => {
               if (success) {
@@ -173,7 +195,7 @@ export function insertLoggerStatement(method: string) {
     // Logger already declared — just insert the log statement
     editor
       .edit((editBuilder) => {
-        editBuilder.insert(insertPosition, logStatement + "\n");
+        insertLog(editBuilder);
       })
       .then((success) => {
         if (success) {

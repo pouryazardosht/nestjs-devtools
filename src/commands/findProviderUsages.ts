@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getTargetEditor } from "../utils/targetEditor";
+import { brandIcon, brandedTitle } from "../utils/quickPickHelpers";
 
 interface UsageItem extends vscode.QuickPickItem {
   location?: vscode.Location;
@@ -127,11 +128,10 @@ export async function findProviderUsagesCommand(): Promise<void> {
 
     for (const ref of refs) {
       items.push({
-        label: ref.injection
-          ? `$(link) ${ref.preview}`
-          : `$(symbol-reference) ${ref.preview}`,
+        label: ref.preview,
         description: `L${ref.location.range.start.line + 1}`,
         detail: ref.injection ? "injected via constructor" : undefined,
+        iconPath: brandIcon(ref.injection ? "link" : "symbol-reference"),
         location: ref.location,
       });
     }
@@ -143,7 +143,7 @@ export async function findProviderUsagesCommand(): Promise<void> {
   }
 
   const quickPick = vscode.window.createQuickPick<UsageItem>();
-  quickPick.title = `Usages of ${className}  ·  ${titleParts.join("  ·  ")}`;
+  quickPick.title = brandedTitle(`Usages of ${className}  ·  ${titleParts.join("  ·  ")}`);
   quickPick.placeholder = "Filter by file or code line…";
   quickPick.matchOnDescription = true;
   quickPick.matchOnDetail = true;

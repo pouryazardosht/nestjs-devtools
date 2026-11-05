@@ -5,6 +5,11 @@ export interface InsertionPoint {
   line: number;
   /** Indentation of the statement's first line. */
   indent: string;
+  /**
+   * Exact insert position for empty-bodied signatures (`constructor() {}`)
+   * — inside the braces, so the log doesn't land in the class body.
+   */
+  at?: vscode.Position;
 }
 
 /**
@@ -12,7 +17,7 @@ export interface InsertionPoint {
  * never sees braces/parens inside strings. State (quote char, block
  * comment) threads across lines for multi-line templates and comments.
  */
-function stripCode(
+export function stripCode(
   line: string,
   state: { inStr: string | null; inBlock: boolean },
 ): string {
@@ -60,7 +65,7 @@ function stripCode(
 }
 
 /** Net bracket delta ( () {} [] ) of stripped code. */
-function netDelta(text: string): number {
+export function netDelta(text: string): number {
   let d = 0;
   for (const ch of text) {
     if (ch === "(" || ch === "{" || ch === "[") d++;
@@ -173,12 +178,59 @@ export function findInsertionPoint(
     depth += deltas[i];
     const t = stripped[i].trim();
 
-    if (t.endsWith("{")) continue; // a block opens; statement continues
+    if (t.endsWith("{")) {
+      // Function-like signature (method, constructor, getter — NOT arrow /
+      // `function` callbacks, control-flow headers, or object literals):
+      // a selection on the signature (e.g. a parameter) should log at the
+      // TOP of the body, not after the whole method.
+      if (
+        i === start &&
+        /\)\s*(?::\s*[^=]*)?\{\s*$/.test(t) &&
+        !t.includes("=>") &&
+        !t.includes("function") &&
+        !/^(if|for|while|switch)\b/.test(t)
+      ) {
+        // Indent like the first body statement (signature indent + 2 fallback)
+        let bodyIndent: string | undefined;
+        for (let k = i + 1; k < stripped.length; k++) {
+          const raw = document.lineAt(winStart + k).text;
+          if (raw.trim().length > 0) {
+            bodyIndent = raw.match(/^\s*/)?.[0];
+            break;
+          }
+        }
+        bodyIndent ??=
+          `${document.lineAt(winStart + i).text.match(/^\s*/)?.[0] ?? ""}  `;
+        return { line: winStart + i, indent: bodyIndent };
+      }
+      continue; // a block opens; statement continues
+    }
     if (depth > 0) continue;
     if (depth < 0) depth = 0; // brackets opened before the window
 
     if (t.endsWith(";") || t.endsWith("}")) {
       end = i;
+
+      // Function-like empty body on the closing line — `constructor() {}`,
+      // `foo(): void {}` — would put the log in the class body (a syntax
+      // error). Insert inside the braces instead.
+      const emptyBody = /\)\s*(?::\s*[^=]*)?\{\s*\}\s*$/.exec(
+        document.lineAt(winStart + i).text,
+      );
+      if (
+        emptyBody &&
+        !t.includes("=>") &&
+        !t.includes("function") &&
+        !/^(if|for|while|switch)\b/.test(t)
+      ) {
+        const sigIndent =
+          document.lineAt(winStart + i).text.match(/^\s*/)?.[0] ?? "";
+        return {
+          line: winStart + i,
+          indent: `${sigIndent}  `,
+          at: new vscode.Position(winStart + i, emptyBody.index + 1),
+        };
+      }
       break;
     }
 

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getTargetEditor } from "../utils/targetEditor";
+import { brandIcon, brandedTitle } from "../utils/quickPickHelpers";
 import {
   getApiOperationSummary,
   getControllerPrefix,
@@ -360,7 +361,7 @@ function buildRouteItem(
     line: m.line,
     buttons: [
       {
-        iconPath: new vscode.ThemeIcon("copy"),
+        iconPath: brandIcon("copy"),
         tooltip: `Copy ${httpMethod} ${route}`,
       },
     ],
@@ -394,12 +395,7 @@ function buildItem(m: MethodInfo): MethodQuickPickItem {
   return {
     label: `${modifierIcon}${m.name}${paramsLabel}${asyncIcon}${staticIcon}${typeLabel}`,
     description: `L${m.line + 1}${decoratorSuffix}${returnLabel}`,
-    iconPath: new vscode.ThemeIcon(
-      METHOD_ICON[m.type],
-      m.modifier === "private" || m.modifier === "protected"
-        ? new vscode.ThemeColor("symbolIcon.fieldForeground")
-        : new vscode.ThemeColor("symbolIcon.methodForeground"),
-    ),
+    iconPath: brandIcon(METHOD_ICON[m.type]),
     line: m.line,
   };
 }
@@ -507,7 +503,7 @@ export async function methodSearcherCommand() {
   const allItems = buildMethodItems(methods, controllerPrefix);
 
   const quickPick = vscode.window.createQuickPick<MethodQuickPickItem>();
-  quickPick.title = `${fileName}  ·  ${titleSuffix}`;
+  quickPick.title = brandedTitle(`${fileName}  ·  ${titleSuffix}`);
   quickPick.placeholder =
     "Filter by route path, HTTP verb, or method name — e.g. users/:id, GET, findOne…";
   quickPick.matchOnDescription = true;

@@ -5,9 +5,13 @@ import {
 } from "./utils/nestProject";
 
 /**
- * Status bar quick access to the module browser.
- * Hidden entirely in workspaces that don't look like NestJS projects, and
- * re-evaluated when workspace folders change.
+ * Status bar hub button for NestJS DevTools. One click opens the command
+ * hub (every feature, grouped and searchable) — no keybindings needed.
+ *
+ * Note: the status bar API only supports text + built-in codicons — no
+ * custom images — so the lion SVG from the activity bar can't be rendered
+ * here. The 🦁 emoji is the closest echo of the logo. Hidden in
+ * non-NestJS workspaces.
  */
 export async function createModuleSearcherStatusBarItem(
   context: vscode.ExtensionContext,
@@ -16,9 +20,9 @@ export async function createModuleSearcherStatusBarItem(
     vscode.StatusBarAlignment.Left,
     100,
   );
-  item.text = "$(extensions) Modules";
-  item.tooltip = "NestJS Devtools: Open Module Files";
-  item.command = "nestjs-log-helper.moduleSearcher";
+  item.text = "🦁 NestJS";
+  item.tooltip = "NestJS DevTools — all commands";
+  item.command = "nestjs-log-helper.hub";
 
   const update = async () => {
     if (await isNestJsProject()) {

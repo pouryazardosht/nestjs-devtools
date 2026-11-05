@@ -45,6 +45,24 @@ const CATEGORY_ORDER = [
   "Other Files",
 ];
 
+/**
+ * Brand prefix for every picker/input title — echoes the lion activity-bar
+ * icon (custom SVGs can't render in quick-input titles; emoji can).
+ */
+export function brandedTitle(title: string): string {
+  return `🦁 ${title}`;
+}
+
+/**
+ * The extension's standard icon — plain, inheriting the theme foreground.
+ * All icon call sites route through here; to re-introduce a brand color
+ * (e.g. charts.red, closest token to NestJS #E0234E), wrap the result in
+ * `new vscode.ThemeIcon(id, new vscode.ThemeColor("charts.red"))`.
+ */
+export function brandIcon(id: string): vscode.ThemeIcon {
+  return new vscode.ThemeIcon(id);
+}
+
 const TYPE_ICON_MAP: Record<string, string> = {
   service: "gear",
   controller: "symbol-method",
@@ -98,7 +116,7 @@ const TYPE_ICON_MAP: Record<string, string> = {
 export function iconForFile(suffix: string): vscode.ThemeIcon {
   const custom = getEffectiveNestTypes().find((t) => t.suffix === suffix);
   const id = custom?.icon ?? TYPE_ICON_MAP[suffix] ?? "file";
-  return new vscode.ThemeIcon(id);
+  return brandIcon(id);
 }
 
 /**
@@ -118,7 +136,7 @@ export function fileSuffixOf(fileName: string): string {
  */
 export function iconForFileName(fileName: string): vscode.ThemeIcon {
   const suffix = fileSuffixOf(fileName);
-  if (!suffix) return new vscode.ThemeIcon("file");
+  if (!suffix) return brandIcon("file");
 
   const types = getEffectiveNestTypes();
   const matched = types.find(
@@ -131,7 +149,7 @@ export function iconForFileName(fileName: string): vscode.ThemeIcon {
     TYPE_ICON_MAP[suffix] ??
     TYPE_ICON_MAP[singular] ??
     "file";
-  return new vscode.ThemeIcon(id);
+  return brandIcon(id);
 }
 
 export function buildGroupedItems(
@@ -145,7 +163,7 @@ export function buildGroupedItems(
     items.push({
       label: "Back",
       description: parent.label,
-      iconPath: new vscode.ThemeIcon("arrow-left"),
+      iconPath: brandIcon("arrow-left"),
       isBack: true,
     });
   }
@@ -162,16 +180,13 @@ export function buildGroupedItems(
       items.push({
         label: mod.base,
         description: `${mod.fileCount} file${mod.fileCount === 1 ? "" : "s"}`,
-        iconPath: new vscode.ThemeIcon(
-          "package",
-          new vscode.ThemeColor("charts.purple"),
-        ),
+        iconPath: brandIcon("package"),
         isModule: true,
         moduleDir: mod.dir,
         uri: mod.uri,
         buttons: [
           {
-            iconPath: new vscode.ThemeIcon("go-to-file"),
+            iconPath: brandIcon("go-to-file"),
             tooltip: "Open module.ts directly",
           },
         ],

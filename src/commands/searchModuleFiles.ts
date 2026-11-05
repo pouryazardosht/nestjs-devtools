@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { getTargetEditor } from "../utils/targetEditor";
 import { getEffectiveNestTypes, NestType } from "../constants";
 import {
+  brandedTitle,
   buildGroupedItems,
   ModuleFile,
   showQuickPickWithShortcuts,
@@ -76,10 +77,11 @@ export async function findAllModuleFiles(
 }
 
 export async function searchModuleFilesCommand() {
-  // Falls back to the last focused editor when a sidebar view has focus
+  // Falls back to the last focused editor when a sidebar view has focus.
+  // With no editor at all (e.g. launched from the hub), browse all modules.
   const editor = getTargetEditor();
   if (!editor) {
-    vscode.window.showInformationMessage("❌ No active editor");
+    await vscode.commands.executeCommand("nestjs-log-helper.moduleSearcher");
     return;
   }
 
@@ -114,9 +116,20 @@ export async function searchModuleFilesCommand() {
 
   const fileItems = buildGroupedItems(allFiles);
 
+  // Header shows which module's files are being browsed
+  const moduleFile = await vscode.workspace.findFiles(
+    new vscode.RelativePattern(moduleRoot, "*.module.ts"),
+    null,
+    1,
+  );
+  const moduleName = moduleFile[0]
+    ? path.basename(moduleFile[0].fsPath, ".module.ts")
+    : "module";
+
   const selection = await showQuickPickWithShortcuts(
     fileItems,
     "All files in this module. Type shortcut to open instantly.",
+    brandedTitle(`${moduleName} · module files`),
   );
 
   if (selection?.uri) {

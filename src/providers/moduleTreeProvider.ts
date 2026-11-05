@@ -2,7 +2,18 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { findAllModuleFiles } from "../commands/searchModuleFiles";
 import { getEffectiveNestTypes, NestType } from "../constants";
-import { iconForFileName } from "../utils/quickPickHelpers";
+import {
+  brandIcon,
+  iconForFileName,
+  ModuleFile,
+} from "../utils/quickPickHelpers";
+
+/** Direct nested-module entry (same shape as quickPickHelpers' NestedModuleInfo minus fileCount). */
+interface NestedModuleDir {
+  uri: vscode.Uri;
+  dir: string;
+  base: string;
+}
 
 type TreeItemType = "module" | "file";
 
@@ -44,10 +55,7 @@ export class ModuleTreeItem extends vscode.TreeItem {
     super(label, collapsibleState);
 
     if (type === "module") {
-      this.iconPath = new vscode.ThemeIcon(
-        "package",
-        new vscode.ThemeColor("charts.purple"),
-      );
+      this.iconPath = brandIcon("package");
       this.contextValue = "nestModule";
       this.tooltip = moduleDir
         ? vscode.workspace.asRelativePath(moduleDir)
@@ -79,6 +87,19 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
   /** Cached root modules — avoids a workspace scan on every keystroke. */
   private rootCache: ModuleTreeItem[] | undefined;
 
+  /** Cached per-module contents (files + nested modules) for badges & children. */
+  private contentsCache = new Map<
+    string,
+    { ownFiles: ModuleFile[]; nestedModuleDirs: NestedModuleDir[] }
+  >();
+
+  /**
+   * Sink for the view-level badge (TreeView.badge), wired in extension.ts.
+   * The stable API has no per-item badge, so per-module counts use the
+   * item description instead.
+   */
+  badgeSink: ((badge: vscode.ViewBadge | undefined) => void) | undefined;
+
   /** Current in-memory filter (lowercased). */
   private filterText = "";
   get filterValue(): string {
@@ -87,7 +108,10 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
 
   /** @param invalidateRoots false = repaint only (filter changes), true = rescan roots. */
   refresh(invalidateRoots = true): void {
-    if (invalidateRoots) this.rootCache = undefined;
+    if (invalidateRoots) {
+      this.rootCache = undefined;
+      this.contentsCache.clear();
+    }
     this._onDidChangeTreeData.fire();
   }
 
@@ -157,12 +181,38 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
         );
       });
 
+    // Per-module counts via description (served from the contents cache,
+    // so the per-module scans happen once per refresh, not per keystroke)
+    await Promise.all(
+      this.rootCache.map(async (item) => {
+        if (!item.moduleDir) return;
+        const { ownFiles, nestedModuleDirs } = await this.computeModuleContents(
+          item.moduleDir,
+        );
+        item.description = `${ownFiles.length} file${ownFiles.length === 1 ? "" : "s"}${
+          nestedModuleDirs.length > 0
+            ? ` · ${nestedModuleDirs.length} nested`
+            : ""
+        }`;
+      }),
+    );
+
+    this.badgeSink?.({
+      value: this.rootCache.length,
+      tooltip: `${this.rootCache.length} root module${this.rootCache.length === 1 ? "" : "s"}`,
+    });
+
     return this.rootCache;
   }
 
-  private async getModuleChildren(
-    moduleDir: string,
-  ): Promise<ModuleTreeItem[]> {
+  /** Cached parse of a module's own files and direct nested modules. */
+  private async computeModuleContents(moduleDir: string): Promise<{
+    ownFiles: ModuleFile[];
+    nestedModuleDirs: NestedModuleDir[];
+  }> {
+    const cached = this.contentsCache.get(moduleDir);
+    if (cached) return cached;
+
     const [allFiles, nestedModuleFiles] = await Promise.all([
       findAllModuleFiles(moduleDir),
       vscode.workspace.findFiles(
@@ -176,8 +226,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
       .filter((f) => path.dirname(f.fsPath) !== moduleDir)
       .sort((a, b) => a.fsPath.length - b.fsPath.length);
 
-    const nestedModuleDirs: { uri: vscode.Uri; dir: string; base: string }[] =
-      [];
+    const nestedModuleDirs: NestedModuleDir[] = [];
     for (const file of nested) {
       const dir = path.dirname(file.fsPath);
       const isInsideExisting = nestedModuleDirs.some((m) =>
@@ -220,6 +269,17 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
         }
         return a.fileName.localeCompare(b.fileName);
       });
+
+    const result = { ownFiles, nestedModuleDirs };
+    this.contentsCache.set(moduleDir, result);
+    return result;
+  }
+
+  private async getModuleChildren(
+    moduleDir: string,
+  ): Promise<ModuleTreeItem[]> {
+    const { ownFiles, nestedModuleDirs } =
+      await this.computeModuleContents(moduleDir);
 
     const items: ModuleTreeItem[] = [];
 

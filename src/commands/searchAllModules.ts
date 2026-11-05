@@ -1,10 +1,12 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import {
+  brandIcon,
   FileQuickPickItem,
   iconForFileName,
   ModuleFile,
 } from "../utils/quickPickHelpers";
+import { brandedTitle } from "../utils/quickPickHelpers";
 import { noNestProjectMessage } from "../utils/nestProject";
 import {
   extractRoutes,
@@ -16,7 +18,7 @@ import { findAllModuleFiles } from "./searchModuleFiles";
 
 // ─── Route collection (shared parser lives in utils/routeUtils) ──────────────
 
-async function collectAllRoutes(): Promise<RouteInfo[]> {
+export async function collectAllRoutes(): Promise<RouteInfo[]> {
   const controllerFiles = await vscode.workspace.findFiles(
     "**/*.controller.ts",
     "**/node_modules/**",
@@ -120,7 +122,7 @@ function buildRouteItems(routes: RouteInfo[]): FileQuickPickItem[] {
         httpMethod: route.httpMethod,
         buttons: [
           {
-            iconPath: new vscode.ThemeIcon("copy"),
+            iconPath: brandIcon("copy"),
             tooltip: `Copy ${route.httpMethod} ${route.fullPath}`,
           },
         ],
@@ -190,7 +192,7 @@ export async function searchAllModulesCommand() {
   const quickPick = vscode.window.createQuickPick<FileQuickPickItem>();
   quickPick.items = allItems;
   quickPick.placeholder = `Search routes (e.g. users/:id) and files across all modules — ${routes.length} routes · ${files.length} files`;
-  quickPick.title = `Search All  ·  ${titleParts.join("  ·  ")}`;
+  quickPick.title = brandedTitle(`Search All  ·  ${titleParts.join("  ·  ")}`);
   quickPick.matchOnDescription = true;
   quickPick.matchOnDetail = true;
   quickPick.show();

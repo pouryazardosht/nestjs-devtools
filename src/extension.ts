@@ -1,20 +1,26 @@
 import * as vscode from "vscode";
-import {
-  ModuleGraphService,
-  showDependencyGraphCommand,
-} from "./commands/dependencyGraph";
+import { apiDocsCoverageCommand } from "./commands/apiDocsCoverage";
 import { findProviderUsagesCommand } from "./commands/findProviderUsages";
 import { generateNestFileCommand } from "./commands/generateNestFile";
+import { showHubCommand } from "./commands/hub";
+import { injectProviderCommand } from "./commands/injectProvider";
 import { insertLoggerStatement } from "./commands/insertLogger";
 import { methodSearcherCommand } from "./commands/methodSearcher";
 import { moduleSearcherCommand } from "./commands/moduleSearcher";
+import {
+  checkProviderHealthCommand,
+  goToProvidingModuleCommand,
+} from "./commands/providerHealth";
+import { removeLogsCommand } from "./commands/removeLogs";
+import { RegisterProviderCodeActionProvider } from "./commands/registerProviderFix";
 import { searchAllModulesCommand } from "./commands/searchAllModules";
 import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
 import { LOGGER_METHODS } from "./constants";
 import { ModuleCodeLensProvider } from "./providers/moduleCodeLensProvider";
-import { trackActiveEditor } from "./utils/targetEditor";
 import { ModuleTreeProvider } from "./providers/moduleTreeProvider";
 import { RoutesTreeProvider } from "./providers/routesTreeProvider";
+import { invalidateNestIndex } from "./utils/nestIndex";
+import { trackActiveEditor } from "./utils/targetEditor";
 import { createModuleSearcherStatusBarItem } from "./statusBar";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -50,17 +56,55 @@ export function activate(context: vscode.ExtensionContext) {
     methodSearcherCommand,
   );
 
+  // Remove logger statements in the active file
+  const removeLogsSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.removeLogs",
+    () => void removeLogsCommand(),
+  );
+
+  // Insert an injected provider into the constructor (Cmd+L Cmd+I)
+  const injectProviderSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.injectProvider",
+    () => void injectProviderCommand(),
+  );
+
+  // Provider health: unregistered @Injectable classes as diagnostics
+  const providerDiagnostics =
+    vscode.languages.createDiagnosticCollection("nestjs-devtools");
+  const providerHealthSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.checkProviderHealth",
+    () => void checkProviderHealthCommand(providerDiagnostics),
+  );
+
+  // Jump from a provider to the module that registers it
+  const goToProvidingModuleSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.goToProvidingModule",
+    () => void goToProvidingModuleCommand(),
+  );
+
+  // API docs coverage: routes missing @ApiOperation
+  const apiDocsCoverageSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.apiDocsCoverage",
+    () => void apiDocsCoverageCommand(),
+  );
+
+  // Quick fixes on Provider Health warnings (register in module)
+  const codeActionsSub = vscode.languages.registerCodeActionsProvider(
+    { language: "typescript" },
+    new RegisterProviderCodeActionProvider(),
+    { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
+  );
+
+  // The Nest index (classes + module registrations) only caches — file
+  // saves just drop the cache; the next command rebuilds lazily
+  const indexInvalidationSub = vscode.workspace.onDidSaveTextDocument(() =>
+    invalidateNestIndex(),
+  );
+
   // Find usages of the active file's provider (TS language service)
   const findUsagesSub = vscode.commands.registerCommand(
     "nestjs-log-helper.findProviderUsages",
     () => void findProviderUsagesCommand(),
-  );
-
-  // Module dependency graph (cached, built on first open)
-  const graphService = new ModuleGraphService();
-  const graphSub = vscode.commands.registerCommand(
-    "nestjs-log-helper.showDependencyGraph",
-    () => void showDependencyGraphCommand(graphService),
   );
 
   // Generate NestJS file (from command palette or tree view right-click)
@@ -69,7 +113,13 @@ export function activate(context: vscode.ExtensionContext) {
     (item?) => generateNestFileCommand(item),
   );
 
-  // Status bar quick access (hidden in non-NestJS workspaces)
+  // Status bar hub: every feature, no keybindings needed
+  const hubSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.hub",
+    () => void showHubCommand(),
+  );
+
+  // Status bar hub button (hidden in non-NestJS workspaces)
   void createModuleSearcherStatusBarItem(context);
 
   // CodeLens on .module.ts files
@@ -91,6 +141,11 @@ export function activate(context: vscode.ExtensionContext) {
     treeDataProvider: routesProvider,
     showCollapseAll: true,
   });
+
+  // View-level badges (TreeView.badge): module count / route count,
+  // updated by the providers whenever the trees are rebuilt
+  treeProvider.badgeSink = (badge) => (moduleTreeView.badge = badge);
+  routesProvider.badgeSink = (badge) => (routesTreeView.badge = badge);
 
   // Refresh tree + CodeLens when .ts files are created or deleted
   const watcher = vscode.workspace.createFileSystemWatcher("**/*.ts");
@@ -206,9 +261,16 @@ export function activate(context: vscode.ExtensionContext) {
     searchAllSub,
     generateFileSub,
     methodSearcherSub,
+    hubSub,
+    removeLogsSub,
+    injectProviderSub,
+    providerHealthSub,
+    goToProvidingModuleSub,
+    apiDocsCoverageSub,
+    codeActionsSub,
+    providerDiagnostics,
+    indexInvalidationSub,
     findUsagesSub,
-    graphSub,
-    graphService,
     codeLensSub,
     moduleTreeView,
     routesTreeView,

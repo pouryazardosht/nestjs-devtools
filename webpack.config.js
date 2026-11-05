@@ -41,6 +41,12 @@ const extensionConfig = {
     ]
   },
   devtool: 'nosources-source-map',
+  // During `npm run watch`, don't overwrite dist/extension.js with a broken
+  // bundle when a compilation has errors — keep the last good build so a
+  // dev-host reload mid-edit never loads (and crashes on) a broken extension.
+  optimization: {
+    emitOnErrors: false
+  },
   infrastructureLogging: {
     level: "log", // enables logging required for problem matchers
   },
