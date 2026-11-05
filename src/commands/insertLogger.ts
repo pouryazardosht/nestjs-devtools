@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { LOGGER_METHODS } from "../constants";
+import { getTargetEditor } from "../utils/targetEditor";
 import { getEnclosingClassName } from "../utils/getEnclosingClassName";
 import { findInsertionPoint } from "../utils/insertionPoint";
 import {
@@ -80,7 +81,8 @@ function buildDeclarationEdits(
 }
 
 export function insertLoggerStatement(method: string) {
-  const editor = vscode.window.activeTextEditor;
+  // Falls back to the last focused editor when a sidebar view has focus
+  const editor = getTargetEditor();
   if (!editor) {
     vscode.window.showInformationMessage("❌ No active editor");
     return;

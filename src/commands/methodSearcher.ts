@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getTargetEditor } from "../utils/targetEditor";
 import {
   getApiOperationSummary,
   getControllerPrefix,
@@ -461,7 +462,8 @@ function buildMethodItems(
 }
 
 export async function methodSearcherCommand() {
-  const editor = vscode.window.activeTextEditor;
+  // Falls back to the last focused editor when a sidebar view has focus
+  const editor = getTargetEditor();
   if (!editor) {
     vscode.window.showInformationMessage("❌ No active editor");
     return;

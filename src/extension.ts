@@ -12,6 +12,7 @@ import { searchAllModulesCommand } from "./commands/searchAllModules";
 import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
 import { LOGGER_METHODS } from "./constants";
 import { ModuleCodeLensProvider } from "./providers/moduleCodeLensProvider";
+import { trackActiveEditor } from "./utils/targetEditor";
 import { ModuleTreeProvider } from "./providers/moduleTreeProvider";
 import { RoutesTreeProvider } from "./providers/routesTreeProvider";
 import { createModuleSearcherStatusBarItem } from "./statusBar";
@@ -217,6 +218,7 @@ export function activate(context: vscode.ExtensionContext) {
     filterModuleTreeSub,
     filterRoutesTreeSub,
     openRouteSub,
+    trackActiveEditor(),
     watcher,
   );
 }

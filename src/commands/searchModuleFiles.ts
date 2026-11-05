@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { getTargetEditor } from "../utils/targetEditor";
 import { getEffectiveNestTypes, NestType } from "../constants";
 import {
   buildGroupedItems,
@@ -75,7 +76,8 @@ export async function findAllModuleFiles(
 }
 
 export async function searchModuleFilesCommand() {
-  const editor = vscode.window.activeTextEditor;
+  // Falls back to the last focused editor when a sidebar view has focus
+  const editor = getTargetEditor();
   if (!editor) {
     vscode.window.showInformationMessage("❌ No active editor");
     return;

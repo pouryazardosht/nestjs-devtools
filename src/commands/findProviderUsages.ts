@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getTargetEditor } from "../utils/targetEditor";
 
 interface UsageItem extends vscode.QuickPickItem {
   location?: vscode.Location;
@@ -28,7 +29,8 @@ function looksLikeInjection(text: string, className: string): boolean {
  * the workspace ourselves.
  */
 export async function findProviderUsagesCommand(): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
+  // Falls back to the last focused editor when a sidebar view has focus
+  const editor = getTargetEditor();
   if (!editor) {
     vscode.window.showInformationMessage("❌ No active editor");
     return;
