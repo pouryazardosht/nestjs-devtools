@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import {
+  getApiOperationSummary,
   getControllerPrefix,
   HTTP_DECORATORS,
   HTTP_METHOD_ORDER,
@@ -18,6 +19,8 @@ interface MethodInfo {
   decoratorDetails: string[];
   params: string;
   returnType: string;
+  /** @ApiOperation summary, if present (routes only). */
+  summary?: string;
 }
 
 interface MethodQuickPickItem extends vscode.QuickPickItem {
@@ -110,6 +113,15 @@ function getRoute(
   return "";
 }
 
+function getSummary(details: string[]): string | undefined {
+  for (const d of details) {
+    if (d.includes("@ApiOperation")) {
+      return getApiOperationSummary(d);
+    }
+  }
+  return undefined;
+}
+
 function extractMethods(document: vscode.TextDocument): MethodInfo[] {
   const results: MethodInfo[] = [];
   const lines = document.getText().split("\n");
@@ -131,15 +143,19 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
       continue;
     }
 
-    // Collect decorators — handle multi-line decorator args
+    // Collect decorators — handle multi-line decorator args, and skip the
+    // consumed continuation lines so they don't get re-processed (which
+    // would clear pendingDecorators and lose this decorator).
     const decoratorMatch = trimmed.match(/^@([\w]+)(\(.*)?/);
     if (decoratorMatch) {
       const decoratorName = decoratorMatch[1];
       let fullDecorator = trimmed;
+      let lastLine = i;
       if (decoratorMatch[2] && !isBalanced(decoratorMatch[2])) {
         let j = i + 1;
         while (j < lines.length) {
           fullDecorator += " " + lines[j].trim();
+          lastLine = j;
           if (isBalanced(fullDecorator.slice(fullDecorator.indexOf("(")))) {
             break;
           }
@@ -148,7 +164,7 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
       }
       pendingDecorators.push(`@${decoratorName}`);
       pendingDecoratorDetails.push(fullDecorator);
-      i++;
+      i = lastLine + 1;
       continue;
     }
 
@@ -286,6 +302,7 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
           decoratorDetails: [...pendingDecoratorDetails],
           params: normalizeParams(methodMatch[5]),
           returnType: cleanReturnType(methodMatch[6]?.trim() || ""),
+          summary: getSummary(pendingDecoratorDetails),
         });
         pendingDecorators = [];
         pendingDecoratorDetails = [];
@@ -321,7 +338,11 @@ function buildRouteItem(
   const guardDecorators = m.decorators
     .filter((d) => GUARD_DECORATORS.has(d.replace("@", "")))
     .map((d) => d.replace("@", ""));
-  const detailParts: string[] = [];
+  const detailParts: string[] = [
+    m.summary !== undefined
+      ? `"${m.summary}"`
+      : "$(eye-close) no @ApiOperation",
+  ];
   if (guardDecorators.length > 0) {
     detailParts.push(`$(shield) ${guardDecorators.join(", ")}`);
   }
@@ -470,13 +491,15 @@ export async function methodSearcherCommand() {
     .find((m) => m.line <= currentLine);
 
   const fileName = document.fileName.split("/").pop() ?? "";
-  const routeCount = methods.filter((m) =>
+  const httpMethods = methods.filter((m) =>
     m.decorators.some((d) => HTTP_DECORATORS.has(d.replace("@", ""))),
-  ).length;
+  );
+  const routeCount = httpMethods.length;
+  const documented = httpMethods.filter((m) => m.summary !== undefined).length;
 
   const titleSuffix =
     routeCount > 0
-      ? `${methods.length} methods  ·  ${routeCount} routes`
+      ? `${methods.length} methods  ·  ${routeCount} routes  ·  ${documented}/${routeCount} documented`
       : `${methods.length} methods`;
 
   const allItems = buildMethodItems(methods, controllerPrefix);

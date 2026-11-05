@@ -76,8 +76,25 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
   readonly onDidChangeTreeData: vscode.Event<void> =
     this._onDidChangeTreeData.event;
 
-  refresh(): void {
+  /** Cached root modules — avoids a workspace scan on every keystroke. */
+  private rootCache: ModuleTreeItem[] | undefined;
+
+  /** Current in-memory filter (lowercased). */
+  private filterText = "";
+  get filterValue(): string {
+    return this.filterText;
+  }
+
+  /** @param invalidateRoots false = repaint only (filter changes), true = rescan roots. */
+  refresh(invalidateRoots = true): void {
+    if (invalidateRoots) this.rootCache = undefined;
     this._onDidChangeTreeData.fire();
+  }
+
+  /** Live filter — in-memory only, never re-parses the workspace. */
+  setFilter(value: string): void {
+    this.filterText = value;
+    this.refresh(false);
   }
 
   getTreeItem(element: ModuleTreeItem): vscode.TreeItem {
@@ -95,11 +112,16 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
   }
 
   private async getRootModules(): Promise<ModuleTreeItem[]> {
+    if (this.rootCache) return this.rootCache;
+
     const moduleFiles = await vscode.workspace.findFiles(
       "**/*.module.ts",
       "**/node_modules/**",
     );
-    if (!moduleFiles.length) return [];
+    if (!moduleFiles.length) {
+      this.rootCache = [];
+      return this.rootCache;
+    }
 
     // Sort by path length so we always process shallower paths first
     const sorted = [...moduleFiles].sort(
@@ -119,7 +141,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
       }
     }
 
-    return topLevel
+    this.rootCache = topLevel
       .sort((a, b) =>
         path.basename(a.fsPath).localeCompare(path.basename(b.fsPath)),
       )
@@ -134,6 +156,8 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
           dir,
         );
       });
+
+    return this.rootCache;
   }
 
   private async getModuleChildren(
@@ -199,8 +223,29 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
 
     const items: ModuleTreeItem[] = [];
 
+    const filter = this.filterText.trim().toLowerCase();
+    let visibleFiles = ownFiles;
+    let visibleNested = nestedModuleDirs;
+    if (filter) {
+      visibleFiles = ownFiles.filter((f) =>
+        f.fileName.toLowerCase().includes(filter),
+      );
+      visibleNested = nestedModuleDirs.filter((m) =>
+        m.base.toLowerCase().includes(filter),
+      );
+      if (visibleFiles.length === 0 && visibleNested.length === 0) {
+        const emptyItem = new ModuleTreeItem(
+          `No matches for "${this.filterText.trim()}"`,
+          vscode.TreeItemCollapsibleState.None,
+          "file",
+        );
+        emptyItem.description = "clear the view filter";
+        return [emptyItem];
+      }
+    }
+
     // Nested modules first, alphabetically
-    for (const mod of [...nestedModuleDirs].sort((a, b) =>
+    for (const mod of [...visibleNested].sort((a, b) =>
       a.base.localeCompare(b.base),
     )) {
       items.push(
@@ -215,7 +260,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
     }
 
     // Then own files grouped by category
-    for (const file of ownFiles) {
+    for (const file of visibleFiles) {
       items.push(
         new ModuleTreeItem(
           file.fileName,

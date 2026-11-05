@@ -1,4 +1,9 @@
 import * as vscode from "vscode";
+import {
+  ModuleGraphService,
+  showDependencyGraphCommand,
+} from "./commands/dependencyGraph";
+import { findProviderUsagesCommand } from "./commands/findProviderUsages";
 import { generateNestFileCommand } from "./commands/generateNestFile";
 import { insertLoggerStatement } from "./commands/insertLogger";
 import { methodSearcherCommand } from "./commands/methodSearcher";
@@ -8,6 +13,7 @@ import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
 import { LOGGER_METHODS } from "./constants";
 import { ModuleCodeLensProvider } from "./providers/moduleCodeLensProvider";
 import { ModuleTreeProvider } from "./providers/moduleTreeProvider";
+import { RoutesTreeProvider } from "./providers/routesTreeProvider";
 import { createModuleSearcherStatusBarItem } from "./statusBar";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -37,6 +43,25 @@ export function activate(context: vscode.ExtensionContext) {
     searchAllModulesCommand,
   );
 
+  // Method searcher (current file)
+  const methodSearcherSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.methodSearcher",
+    methodSearcherCommand,
+  );
+
+  // Find usages of the active file's provider (TS language service)
+  const findUsagesSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.findProviderUsages",
+    () => void findProviderUsagesCommand(),
+  );
+
+  // Module dependency graph (cached, built on first open)
+  const graphService = new ModuleGraphService();
+  const graphSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.showDependencyGraph",
+    () => void showDependencyGraphCommand(graphService),
+  );
+
   // Generate NestJS file (from command palette or tree view right-click)
   const generateFileSub = vscode.commands.registerCommand(
     "nestjs-log-helper.generateNestFile",
@@ -53,12 +78,18 @@ export function activate(context: vscode.ExtensionContext) {
     codeLensProvider,
   );
 
-  // Sidebar Tree View
+  // Sidebar Tree Views (createTreeView adds the native collapse-all button)
   const treeProvider = new ModuleTreeProvider();
-  const treeSub = vscode.window.registerTreeDataProvider(
-    "nestjsModuleTree",
-    treeProvider,
-  );
+  const moduleTreeView = vscode.window.createTreeView("nestjsModuleTree", {
+    treeDataProvider: treeProvider,
+    showCollapseAll: true,
+  });
+
+  const routesProvider = new RoutesTreeProvider();
+  const routesTreeView = vscode.window.createTreeView("nestjsRoutesTree", {
+    treeDataProvider: routesProvider,
+    showCollapseAll: true,
+  });
 
   // Refresh tree + CodeLens when .ts files are created or deleted
   const watcher = vscode.workspace.createFileSystemWatcher("**/*.ts");
@@ -69,6 +100,7 @@ export function activate(context: vscode.ExtensionContext) {
   watcher.onDidDelete(() => {
     codeLensProvider.refresh();
     treeProvider.refresh();
+    routesProvider.invalidateAll();
   });
 
   // Refresh tree command (the inline button in the view title bar)
@@ -77,33 +109,114 @@ export function activate(context: vscode.ExtensionContext) {
     () => treeProvider.refresh(),
   );
 
+  const refreshRoutesSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.refreshRoutesTree",
+    () => routesProvider.invalidateAll(),
+  );
+
+  // Live in-view filter boxes for both trees. createInputBox streams
+  // onDidChangeValue, so the trees repaint as the user types — matching is
+  // purely in-memory over cached parses, no workspace re-scans.
+  const openFilterBox = (
+    input: vscode.InputBox,
+    apply: (value: string) => void,
+    onMessage: (value: string) => void,
+  ): void => {
+    input.onDidChangeValue((value) => {
+      apply(value);
+      onMessage(value);
+    });
+    input.onDidAccept(() => input.hide());
+    input.onDidHide(() => input.dispose());
+    input.show();
+  };
+
+  let moduleFilterBox: vscode.InputBox | undefined;
+  const filterModuleTreeSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.filterModuleTree",
+    () => {
+      if (moduleFilterBox) {
+        moduleFilterBox.value = treeProvider.filterValue;
+        moduleFilterBox.show();
+        return;
+      }
+      moduleFilterBox = vscode.window.createInputBox();
+      moduleFilterBox.value = treeProvider.filterValue;
+      moduleFilterBox.title = "Filter module files";
+      moduleFilterBox.placeholder = "e.g. service, auth, dto";
+      moduleFilterBox.prompt =
+        "Type to filter live — matches file and module names. Clear the text and press Enter to reset.";
+      openFilterBox(
+        moduleFilterBox,
+        (value) => treeProvider.setFilter(value),
+        (value) =>
+          (moduleTreeView.message = value.trim()
+            ? `Filter: ${value.trim()}`
+            : undefined),
+      );
+    },
+  );
+
+  let routesFilterBox: vscode.InputBox | undefined;
+  const filterRoutesTreeSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.filterRoutesTree",
+    () => {
+      if (routesFilterBox) {
+        routesFilterBox.value = routesProvider.filterValue;
+        routesFilterBox.show();
+        return;
+      }
+      routesFilterBox = vscode.window.createInputBox();
+      routesFilterBox.value = routesProvider.filterValue;
+      routesFilterBox.title = "Filter routes";
+      routesFilterBox.placeholder = "e.g. /users, GET, findOne";
+      routesFilterBox.prompt =
+        "Type to filter live — matches path, method name, verb, or @ApiOperation summary. Clear the text and press Enter to reset.";
+      openFilterBox(
+        routesFilterBox,
+        (value) => routesProvider.setFilter(value),
+        (value) =>
+          (routesTreeView.message = value.trim()
+            ? `Filter: ${value.trim()}`
+            : undefined),
+      );
+    },
+  );
+
+  // Open a route from the routes tree at its method line
+  const openRouteSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.openRoute",
+    async (uri: vscode.Uri, line: number) => {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      const editor = await vscode.window.showTextDocument(doc);
+      const pos = new vscode.Position(line, 0);
+      editor.selection = new vscode.Selection(pos, pos);
+      editor.revealRange(
+        new vscode.Range(pos, pos),
+        vscode.TextEditorRevealType.InCenter,
+      );
+    },
+  );
+
   context.subscriptions.push(
     ...loggerSubs,
     moduleSearcherSub,
     searchFilesSub,
     searchAllSub,
     generateFileSub,
+    methodSearcherSub,
+    findUsagesSub,
+    graphSub,
+    graphService,
     codeLensSub,
-    treeSub,
+    moduleTreeView,
+    routesTreeView,
+    routesProvider,
     refreshTreeSub,
-    watcher,
-  );
-
-  const methodSearcherSub = vscode.commands.registerCommand(
-    "nestjs-log-helper.methodSearcher",
-    methodSearcherCommand,
-  );
-
-  context.subscriptions.push(
-    ...loggerSubs,
-    moduleSearcherSub,
-    searchFilesSub,
-    searchAllSub,
-    generateFileSub,
-    methodSearcherSub, // add this
-    codeLensSub,
-    treeSub,
-    refreshTreeSub,
+    refreshRoutesSub,
+    filterModuleTreeSub,
+    filterRoutesTreeSub,
+    openRouteSub,
     watcher,
   );
 }

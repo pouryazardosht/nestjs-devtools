@@ -6,143 +6,14 @@ import {
   ModuleFile,
 } from "../utils/quickPickHelpers";
 import {
-  getControllerPrefix,
-  HTTP_DECORATORS,
+  extractRoutes,
   HTTP_METHOD_ORDER,
   httpMethodIcon,
-  isBalanced,
+  RouteInfo,
 } from "../utils/routeUtils";
 import { findAllModuleFiles } from "./searchModuleFiles";
 
-// ─── Route extraction ────────────────────────────────────────────────────────
-
-interface RouteInfo {
-  httpMethod: string;
-  fullPath: string;
-  methodName: string;
-  line: number;
-  controllerFile: string;
-  uri: vscode.Uri;
-}
-
-function extractRoutes(uri: vscode.Uri, text: string): RouteInfo[] {
-  const lines = text.split("\n");
-  const controllerPrefix = getControllerPrefix(text);
-  const routes: RouteInfo[] = [];
-
-  let pendingDecorators: { name: string; full: string }[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const trimmed = lines[i].trim();
-
-    if (
-      trimmed === "" ||
-      trimmed.startsWith("//") ||
-      trimmed.startsWith("*") ||
-      trimmed.startsWith("/*")
-    ) {
-      i++;
-      continue;
-    }
-
-    const decoratorMatch = trimmed.match(/^@([\w]+)(\(.*)?/);
-    if (decoratorMatch) {
-      const name = decoratorMatch[1];
-      let full = trimmed;
-      // Handle multi-line decorator args
-      if (decoratorMatch[2] && !isBalanced(decoratorMatch[2])) {
-        let j = i + 1;
-        while (j < lines.length) {
-          full += " " + lines[j].trim();
-          if (isBalanced(full.slice(full.indexOf("(")))) break;
-          j++;
-        }
-      }
-      pendingDecorators.push({ name, full });
-      i++;
-      continue;
-    }
-
-    // Check if any pending decorator is an HTTP decorator
-    const httpDecorator = pendingDecorators.find((d) =>
-      HTTP_DECORATORS.has(d.name),
-    );
-
-    if (httpDecorator) {
-      // Look ahead to get the method name
-      const lookahead = lines
-        .slice(i, Math.min(i + 6, lines.length))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      const methodMatch = lookahead.match(
-        /(?:public|private|protected)?\s*(?:async\s+)?([\w]+)\s*\(/,
-      );
-
-      if (methodMatch) {
-        const methodName = methodMatch[1];
-        const skipKeywords = [
-          "if",
-          "for",
-          "while",
-          "switch",
-          "catch",
-          "constructor",
-          "class",
-          "function",
-        ];
-
-        if (!skipKeywords.includes(methodName)) {
-          const httpMethod = httpDecorator.name.toUpperCase();
-
-          // Extract route path from decorator
-          const pathMatch = httpDecorator.full.match(
-            /@(?:\w+)\s*\(\s*['"`]([^'"`]*)['"`]/,
-          );
-          const noArgMatch = httpDecorator.full.match(/@(?:\w+)\s*\(\s*\)/);
-
-          let routePath = "";
-          if (pathMatch) {
-            routePath = pathMatch[1].replace(/^\//, "");
-          }
-
-          const fullPath = routePath
-            ? `${controllerPrefix}/${routePath}`
-            : controllerPrefix || "/";
-
-          routes.push({
-            httpMethod,
-            fullPath,
-            methodName,
-            line: i,
-            controllerFile: path.basename(uri.fsPath),
-            uri,
-          });
-        }
-      }
-
-      pendingDecorators = [];
-      i++;
-      continue;
-    }
-
-    // Clear decorators if line doesn't look like a method
-    if (
-      trimmed !== "{" &&
-      trimmed !== "}" &&
-      !trimmed.startsWith("//") &&
-      !trimmed.startsWith("*")
-    ) {
-      pendingDecorators = [];
-    }
-
-    i++;
-  }
-
-  return routes;
-}
+// ─── Route collection (shared parser lives in utils/routeUtils) ──────────────
 
 async function collectAllRoutes(): Promise<RouteInfo[]> {
   const controllerFiles = await vscode.workspace.findFiles(
@@ -233,10 +104,14 @@ function buildRouteItems(routes: RouteInfo[]): FileQuickPickItem[] {
     });
 
     for (const route of sorted) {
+      const detail =
+        route.summary !== undefined
+          ? `L${route.line + 1}  ·  "${route.summary}"`
+          : `L${route.line + 1}  ·  $(eye-close) no @ApiOperation`;
       items.push({
         label: `${route.httpMethod}  ${route.fullPath}   ${route.methodName}()`,
         description: controller,
-        detail: `L${route.line + 1}`,
+        detail,
         iconPath: httpMethodIcon(route.httpMethod),
         uri: route.uri,
         line: route.line,

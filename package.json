@@ -8,7 +8,7 @@
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
   "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -68,7 +68,7 @@
         {
           "id": "nestjs-devtools-container",
           "title": "NestJS DevTools",
-          "icon": "$(package)"
+          "icon": "media/view-icon.svg"
         }
       ]
     },
@@ -77,6 +77,10 @@
         {
           "id": "nestjsModuleTree",
           "name": "Modules"
+        },
+        {
+          "id": "nestjsRoutesTree",
+          "name": "Routes"
         }
       ]
     },
@@ -88,8 +92,23 @@
           "group": "navigation"
         },
         {
+          "command": "nestjs-log-helper.filterModuleTree",
+          "when": "view == nestjsModuleTree",
+          "group": "navigation"
+        },
+        {
           "command": "nestjs-log-helper.generateNestFile",
           "when": "view == nestjsModuleTree",
+          "group": "navigation"
+        },
+        {
+          "command": "nestjs-log-helper.refreshRoutesTree",
+          "when": "view == nestjsRoutesTree",
+          "group": "navigation"
+        },
+        {
+          "command": "nestjs-log-helper.filterRoutesTree",
+          "when": "view == nestjsRoutesTree",
           "group": "navigation"
         }
       ],
@@ -162,6 +181,29 @@
         {
           "command": "nestjs-log-helper.methodSearcher",
           "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.findProviderUsages",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.showDependencyGraph"
+        },
+        {
+          "command": "nestjs-log-helper.refreshRoutesTree",
+          "when": "false"
+        },
+        {
+          "command": "nestjs-log-helper.filterModuleTree",
+          "when": "false"
+        },
+        {
+          "command": "nestjs-log-helper.filterRoutesTree",
+          "when": "false"
+        },
+        {
+          "command": "nestjs-log-helper.openRoute",
+          "when": "false"
         }
       ]
     },
@@ -227,6 +269,41 @@
         "icon": "$(new-file)"
       },
       {
+        "command": "nestjs-log-helper.findProviderUsages",
+        "title": "Find · Provider Usages",
+        "category": "NestJS Devtools",
+        "icon": "$(references)"
+      },
+      {
+        "command": "nestjs-log-helper.showDependencyGraph",
+        "title": "View · Module Dependency Graph",
+        "category": "NestJS Devtools",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "nestjs-log-helper.refreshRoutesTree",
+        "title": "Tree · Refresh Routes",
+        "category": "NestJS Devtools",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "nestjs-log-helper.filterModuleTree",
+        "title": "Tree · Filter Module Files",
+        "category": "NestJS Devtools",
+        "icon": "$(search)"
+      },
+      {
+        "command": "nestjs-log-helper.filterRoutesTree",
+        "title": "Tree · Filter Routes",
+        "category": "NestJS Devtools",
+        "icon": "$(search)"
+      },
+      {
+        "command": "nestjs-log-helper.openRoute",
+        "title": "Open Route Method",
+        "category": "NestJS Devtools"
+      },
+      {
         "command": "nestjs-log-helper.refreshModuleTree",
         "title": "Tree · Refresh",
         "category": "NestJS Devtools",
@@ -290,6 +367,17 @@
         "key": "ctrl+l ctrl+j",
         "mac": "cmd+l cmd+j",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "nestjs-log-helper.findProviderUsages",
+        "key": "ctrl+l ctrl+u",
+        "mac": "cmd+l cmd+u",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "nestjs-log-helper.showDependencyGraph",
+        "key": "ctrl+l ctrl+g",
+        "mac": "cmd+l cmd+g"
       }
     ]
   },
