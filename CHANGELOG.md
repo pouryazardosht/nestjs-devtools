@@ -5,10 +5,83 @@ All notable changes to **NestJS DevTools** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-05
+
+### Added
+
+- **Status bar hub (🦁 NestJS).** The old "Modules" status-bar button is now
+  a launcher: one click opens every feature in a single searchable picker,
+  grouped by type (Navigate / Insert / Generate / Diagnose / Logs) with
+  icons and platform-aware shortcut hints — no keybindings required.
+  Hidden in non-NestJS workspaces.
+- **Branded panel titles.** Every QuickPick and input now carries the 🦁
+  lion — module browser, all searchers, generator, diagnostics — matching
+  the activity-bar icon.
+- **Register-provider quick fix.** The Provider Health warnings now offer a
+  Code Action that registers the orphan class in the nearest module's
+  `providers`/`controllers` array (same directory first, then ancestors) —
+  handling single-line and multi-line arrays, both comma styles, and a
+  missing array — and adds the import.
+- **Routes tree shows `@ApiTags`.** Controller rows now display their
+  Swagger tag next to the route count.
+- **Log template setting** (`nestjs-devtools.logTemplate`). Customise the
+  message format of inserted log statements with `{emoji}`, `{class}` and
+  `{variable}` placeholders — remove `{emoji}` to disable emojis. Quotes
+  and backslashes are escaped automatically.
+- **Log · Remove in This File.** Scans the active file for `this.logger.*()`
+  calls (multi-line calls included, via the same string-aware parser as log
+  insertion), previews them, and removes all — or a hand-picked subset via
+  a pre-selected checklist — in a single whole-line edit pass.
+- **Tree view counts & badges.** Module rows show file (and nested-module)
+  counts; controller rows show route counts (match counts while filtering,
+  plus the Swagger tag). Both view headers carry a badge with the workspace
+  totals (root modules / routes).
+- **Generate file + matching spec.** After generating a class-based type
+  (service, controller, guard, interceptor, pipe, filter, resolver,
+  repository, middleware, strategy, gateway) the generator offers to create
+  a `*.spec.ts` with a `Test.createTestingModule` scaffold and the correct
+  `providers`/`controllers` binding.
+
+### Changed
+
+- **Minimum VS Code raised to 1.86** to support the view-header badges
+  (`TreeView.badge`).
+- **Uniform icon system.** Every icon across trees, pickers and the hub now
+  inherits the theme foreground color via a single shared helper
+  (`brandIcon`) — removing the one-off purple module icons. Routes-tree
+  controller rows use an explicit `$(server)` icon instead of the file
+  theme's generic icon.
+- **Current-module-files picker shows a header** with the module being
+  browsed (e.g. `🦁 auth · module files`).
+
+### Fixed
+
+- **Dev-host crash during `npm run watch`.** Webpack no longer emits a
+  broken bundle when a compilation has errors (`optimization.emitOnErrors:
+  false`) — the last good build is kept, so reloading the Extension
+  Development Host mid-edit never loads a broken extension.
+- **Routes tree icons.** Controller rows no longer inherit the file theme's
+  generic/folder icon; empty-state rows get explicit icons too.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added
 
+- **Diagnose · Provider Health.** Scans every decorated class
+  (`@Injectable`, `@Controller`, …) and flags those no module registers in
+  `providers`/`controllers` as Problems-panel warnings, with a jumpable
+  report. Includes **Navigate · Providing Module** — jump from a provider
+  file to the module that registers it.
+- **Insert · Injected Provider** (`Cmd+L Cmd+I`). Pick a provider from a
+  workspace-wide list of decorated classes and the command appends
+  `private readonly x: X` to the constructor (empty, single-line and
+  multi-line forms, both trailing-comma styles) plus the import with a
+  correct relative path.
+- **Diagnose · API Docs Coverage.** Reports every route missing an
+  `@ApiOperation` summary, grouped by controller with jump-to-handler and
+  a coverage percentage.
+- **Shared Nest index.** Decorated classes and module registrations are
+  cached per session and invalidated lazily on save — no background scans.
 - **Routes tree view.** A second tree view in the NestJS DevTools panel lists
   every route in the workspace, grouped by controller and sorted by HTTP verb
   then path, with color-coded verb icons. Clicking a route opens the
@@ -19,14 +92,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference to the active file's exported class, grouped by file, with DI
   injection sites annotated (`injected via constructor`). Resolves through
   the TypeScript language service — no workspace scanning.
-
-- **View · Module Dependency Graph** (`Cmd+L Cmd+G` / `Ctrl+L Ctrl+G`). Parses
-  `imports: [...]` from every `*.module.ts` and renders an interactive SVG
-  dependency graph in a webview: levels computed from root modules, external
-  modules (e.g. `TypeOrmModule`) shown dashed, hover highlights connected
-  edges, click a node to open its module file. Self-contained renderer — no
-  bundled dependencies. The graph is cached and rebuilt lazily when a module
-  file is saved.
 
 - **Swagger/OpenAPI awareness.** `@ApiOperation` summaries are parsed (single
   or multi-line, before or after the HTTP decorator) and shown in the Method

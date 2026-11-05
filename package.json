@@ -8,9 +8,9 @@
   "publisher": "pouryazardosht",
   "displayName": "nestjs-devtools",
   "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.86.0"
   },
   "categories": [
     "Other"
@@ -25,6 +25,11 @@
     "configuration": {
       "title": "NestJS Devtools",
       "properties": {
+        "nestjs-devtools.logTemplate": {
+          "type": "string",
+          "default": "{emoji} {class} ~ {variable}",
+          "markdownDescription": "Message template for inserted log statements. Placeholders: `{emoji}` (per-method emoji), `{class}` (enclosing class name), `{variable}` (selected text). Remove `{emoji}` to disable emojis entirely."
+        },
         "nestjs-devtools.customTypes": {
           "type": "array",
           "default": [],
@@ -76,11 +81,13 @@
       "nestjs-devtools-container": [
         {
           "id": "nestjsModuleTree",
-          "name": "Modules"
+          "name": "Modules",
+          "icon": "media/view-icon.svg"
         },
         {
           "id": "nestjsRoutesTree",
-          "name": "Routes"
+          "name": "Routes",
+          "icon": "media/view-icon.svg"
         }
       ]
     },
@@ -149,6 +156,16 @@
           "when": "editorTextFocus",
           "command": "nestjs-log-helper.methodSearcher",
           "group": "9_nestjsDevtools@4"
+        },
+        {
+          "when": "editorTextFocus",
+          "command": "nestjs-log-helper.removeLogs",
+          "group": "9_nestjsDevtools@5"
+        },
+        {
+          "when": "editorTextFocus",
+          "command": "nestjs-log-helper.injectProvider",
+          "group": "9_nestjsDevtools@6"
         }
       ],
       "commandPalette": [
@@ -193,11 +210,29 @@
           "when": "editorTextFocus"
         },
         {
-          "command": "nestjs-log-helper.findProviderUsages",
+          "command": "nestjs-log-helper.hub"
+        },
+        {
+          "command": "nestjs-log-helper.removeLogs",
           "when": "editorTextFocus"
         },
         {
-          "command": "nestjs-log-helper.showDependencyGraph"
+          "command": "nestjs-log-helper.injectProvider",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.goToProvidingModule",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "nestjs-log-helper.checkProviderHealth"
+        },
+        {
+          "command": "nestjs-log-helper.apiDocsCoverage"
+        },
+        {
+          "command": "nestjs-log-helper.findProviderUsages",
+          "when": "editorTextFocus"
         },
         {
           "command": "nestjs-log-helper.refreshRoutesTree",
@@ -285,12 +320,6 @@
         "icon": "$(references)"
       },
       {
-        "command": "nestjs-log-helper.showDependencyGraph",
-        "title": "View · Module Dependency Graph",
-        "category": "NestJS Devtools",
-        "icon": "$(graph)"
-      },
-      {
         "command": "nestjs-log-helper.refreshRoutesTree",
         "title": "Tree · Refresh Routes",
         "category": "NestJS Devtools",
@@ -312,6 +341,42 @@
         "command": "nestjs-log-helper.openRoute",
         "title": "Open Route Method",
         "category": "NestJS Devtools"
+      },
+      {
+        "command": "nestjs-log-helper.removeLogs",
+        "title": "Log · Remove in This File",
+        "category": "NestJS Devtools",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "nestjs-log-helper.injectProvider",
+        "title": "Insert · Injected Provider",
+        "category": "NestJS Devtools",
+        "icon": "$(symbol-parameter)"
+      },
+      {
+        "command": "nestjs-log-helper.checkProviderHealth",
+        "title": "Diagnose · Provider Health",
+        "category": "NestJS Devtools",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "nestjs-log-helper.goToProvidingModule",
+        "title": "Navigate · Providing Module",
+        "category": "NestJS Devtools",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "nestjs-log-helper.apiDocsCoverage",
+        "title": "Diagnose · API Docs Coverage",
+        "category": "NestJS Devtools",
+        "icon": "$(book)"
+      },
+      {
+        "command": "nestjs-log-helper.hub",
+        "title": "Open NestJS DevTools Hub",
+        "category": "NestJS Devtools",
+        "icon": "$(hub)"
       },
       {
         "command": "nestjs-log-helper.refreshModuleTree",
@@ -355,7 +420,7 @@
         "command": "nestjs-log-helper.moduleSearcher",
         "key": "ctrl+l ctrl+m",
         "mac": "cmd+l cmd+m",
-        "when": "!terminalFocus && !inputFocus"
+        "when": "!terminalFocus && (editorTextFocus || !inputFocus)"
       },
       {
         "command": "nestjs-log-helper.searchModuleFiles",
@@ -367,13 +432,13 @@
         "command": "nestjs-log-helper.searchAllModules",
         "key": "ctrl+l ctrl+a",
         "mac": "cmd+l cmd+a",
-        "when": "!terminalFocus && !inputFocus"
+        "when": "!terminalFocus && (editorTextFocus || !inputFocus)"
       },
       {
         "command": "nestjs-log-helper.generateNestFile",
         "key": "ctrl+l ctrl+n",
         "mac": "cmd+l cmd+n",
-        "when": "!terminalFocus && !inputFocus"
+        "when": "!terminalFocus && (editorTextFocus || !inputFocus)"
       },
       {
         "command": "nestjs-log-helper.methodSearcher",
@@ -388,10 +453,10 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "nestjs-log-helper.showDependencyGraph",
-        "key": "ctrl+l ctrl+g",
-        "mac": "cmd+l cmd+g",
-        "when": "!terminalFocus && !inputFocus"
+        "command": "nestjs-log-helper.injectProvider",
+        "key": "ctrl+l ctrl+i",
+        "mac": "cmd+l cmd+i",
+        "when": "editorTextFocus"
       }
     ]
   },
@@ -400,18 +465,11 @@
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "lint": "eslint src"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.19",
-    "@types/vscode": "1.85.0",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2",
+    "@types/vscode": "1.86.0",
     "eslint": "^9.39.3",
     "ts-loader": "^9.5.4",
     "typescript": "^5.9.3",

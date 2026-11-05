@@ -2,9 +2,8 @@
 
 Supercharge your NestJS workflow inside VS Code.
 Quickly insert **smart logger statements**, **navigate every file and route in
-your project**, **find provider usages**, **visualize your module dependency
-graph**, **generate boilerplate**, and **browse methods with Swagger docs** —
-all without leaving the editor.
+your project**, **find provider usages**, **generate boilerplate**, and
+**browse methods with Swagger docs** — all without leaving the editor.
 
 Built for fast navigation in large NestJS codebases — never touch the file tree again.
 
@@ -59,6 +58,40 @@ Saying **Yes** will:
 | `error`   | ❌    | `Cmd+L Cmd+E` | `Ctrl+L Ctrl+E` |
 | `verbose` | 🔊    | `Cmd+L Cmd+V` | `Ctrl+L Ctrl+V` |
 
+#### Message template
+
+Customise the message format with the `nestjs-devtools.logTemplate`
+setting. Placeholders:
+
+| Placeholder  | Replaced with                       |
+| ------------ | ----------------------------------- |
+| `{emoji}`    | The method's emoji (🔍 📝 ⚠️ ❌ 🔊) |
+| `{class}`    | Enclosing class name                |
+| `{variable}` | The selected text                   |
+
+Default: `"{emoji} {class} ~ {variable}"` → `🔍 UserService ~ user`.
+Remove `{emoji}` to disable emojis entirely:
+
+```jsonc
+{
+  // No emojis, arrow separator instead
+  "nestjs-devtools.logTemplate": "{class} -> {variable}",
+}
+```
+
+#### Removing logs
+
+**Log · Remove in This File** (Command Palette or editor context menu)
+scans the active file for `this.logger.*()` calls — including multi-line
+calls — and lets you remove them:
+
+- **Remove all** in one edit pass, or
+- **Choose which ones** — a checklist pre-selects every statement;
+  uncheck the ones to keep, filter by line content, and remove the rest.
+
+The file is only touched after you confirm, and removal always deletes
+whole lines, so no blank gaps are left behind.
+
 ---
 
 ### 🗂️ Sidebar TreeViews
@@ -74,6 +107,9 @@ Your full module graph as an expandable tree — no command needed:
 - Nested modules appear as collapsible children above a module's own files.
 - Each module's files are grouped by category (Core NestJS, Entities, DTOs, …)
   with ThemeIcons matching their type.
+- Each module row shows its **file count** (plus nested-module count) in the
+  description column, and the view header carries a badge with the total
+  number of root modules.
 - Clicking any file opens it immediately.
 - The title bar has **Refresh**, **Search** (live filter), and
   **Generate File** buttons, plus the native **Collapse All** toggle.
@@ -86,6 +122,10 @@ Every HTTP route in the workspace, always visible:
 - Routes grouped by controller (alphabetical), sorted by HTTP verb then path,
   with **color-coded verb icons** (GET blue, POST green, PUT orange,
   PATCH yellow, DELETE red).
+- Each controller row shows its **route count** (and its `@ApiTags` tag,
+  if present) in the description column — match count while a filter is
+  active — and the view header carries a badge with the total number of
+  routes in the workspace.
 - Clicking a route opens the controller at the handler's line.
 - Routes missing an `@ApiOperation` summary are flagged **no docs**.
 - Saving a controller re-parses **only that file** (debounced) — cheap to
@@ -165,19 +205,49 @@ Stand inside a provider (e.g. `users.service.ts`) and press
 
 ---
 
-### 🕸️ Module Dependency Graph
+### 🩺 Diagnostics
 
-Press **`Cmd+L Cmd+G`** / **`Ctrl+L Ctrl+G`** (or use the Command Palette) to
-visualize how your modules import each other:
+Two one-shot health checks that report into the Problems panel and pickers:
 
-- `imports: [...]` parsed from every `*.module.ts`; levels computed from root
-  modules (modules nobody imports sit at the top).
-- **External modules** (`TypeOrmModule`, `ConfigModule`, …) render as dashed
-  nodes hanging off their importers.
-- **Hover** a node to highlight all its edges; **click** a local module node
-  to open its `.module.ts`.
-- Self-contained SVG renderer in a webview — no bundled graph libraries.
-- The graph is cached and rebuilt lazily when a module file is saved.
+#### Provider Health
+
+**Diagnose · Provider Health** scans every decorated class
+(`@Injectable`, `@Controller`, `@Guard`, …) in the workspace and flags the
+ones **no module registers** in `providers`/`controllers` — the classes that
+would fail at runtime with *"Nest can't resolve dependencies…"*. Findings:
+
+- appear as **warnings in the Problems panel** (squiggle on the class), and
+- in a jumpable report grouped by file.
+
+Classes registered only via spread expressions (`...sharedProviders`) can't
+be resolved textually and may need a manual check.
+
+Each warning also ships a **quick fix** (lightbulb / `Cmd+.`): *Add
+UsersService to users.module.ts (providers)* — the module is chosen by folder
+proximity (same directory first, then ancestors), the class is inserted into
+the `providers`/`controllers` array (single-line, multi-line, and both
+comma styles handled, creating the array if missing), and the import is
+added automatically. For `@Controller` classes the fix targets the
+`controllers` array.
+
+#### API Docs Coverage
+
+**Diagnose · API Docs Coverage** lists every route missing an
+`@ApiOperation` summary, grouped by controller, with a jump-to-handler per
+row and a coverage percentage in the header (e.g. `14 of 20 routes missing
+@ApiOperation (30% documented)`).
+
+### 🧩 Insert · Injected Provider
+
+Press **`Cmd+L Cmd+I`** / **`Ctrl+L Ctrl+I`** inside a class to inject a
+provider without typing boilerplate:
+
+1. Pick a provider from a searchable list of every decorated class in the
+   workspace (with file-type icons and locations).
+2. The command appends `private readonly usersService: UsersService` to the
+   constructor — handling empty constructors, single-line and multi-line
+   parameter lists, and both trailing-comma styles — and adds the `import`
+   with a correct relative path if it's not already present.
 
 ---
 
@@ -222,7 +292,10 @@ Navigate between files inside a NestJS module without touching the file tree.
 
 #### ⚡ Quick access
 
-- **Status bar item** — one click opens the module browser.
+- **Status bar hub** — the `🦁 NestJS` button opens **every feature**
+  in one searchable picker, grouped by type (Navigate / Insert / Generate /
+  Diagnose / Logs) with icons and shortcut hints — no keybindings required.
+  Hidden in non-NestJS workspaces.
 - **CodeLens** above `@Module(...)` shows live file and nested module counts.
   Clicking it opens the file browser for that module. Counts are cached and
   refresh automatically when files are added or deleted.
@@ -243,6 +316,12 @@ Sidebar TreeView) to scaffold a new NestJS file in two steps:
    name derived from your input.
 
 If the file already exists you are prompted before overwriting.
+
+For class-based types (service, controller, guard, interceptor, pipe,
+filter, resolver, repository, middleware, strategy, gateway) the generator
+then offers to create a **matching spec** — `users.service.spec.ts` with a
+`Test.createTestingModule` scaffold, a `should be defined` test, and the
+correct `providers`/`controllers` binding for the type.
 
 ---
 
@@ -282,6 +361,15 @@ and more. Unknown suffixes fall back to the generic file icon.
 ---
 
 ## ⚙️ Extension Settings
+
+### `nestjs-devtools.logTemplate`
+
+Message template for inserted log statements. **Type:** `string`
+(default: `"{emoji} {class} ~ {variable}"`).
+
+Placeholders: `{emoji}`, `{class}`, `{variable}`. Unknown placeholders are
+left untouched; consecutive spaces collapse; quotes and backslashes in the
+output are escaped automatically.
 
 ### `nestjs-devtools.customTypes`
 
@@ -325,7 +413,9 @@ Each item requires:
 ## ⌨️ Keyboard Shortcuts
 
 All shortcuts can be customised via **Preferences: Open Keyboard Shortcuts**
-(search for `nestjs-log-helper`).
+(search for `nestjs-log-helper`). Prefer no shortcuts at all? The status-bar
+`🦁 NestJS` button opens every command, grouped and searchable. Every
+picker in the extension carries the 🦁 brand in its title.
 
 | Command                                | macOS         | Windows/Linux   |
 | -------------------------------------- | ------------- | --------------- |
@@ -340,7 +430,7 @@ All shortcuts can be customised via **Preferences: Open Keyboard Shortcuts**
 | Navigate · Methods in File             | `Cmd+L Cmd+J` | `Ctrl+L Ctrl+J` |
 | Generate NestJS File                   | `Cmd+L Cmd+N` | `Ctrl+L Ctrl+N` |
 | Find · Provider Usages                 | `Cmd+L Cmd+U` | `Ctrl+L Ctrl+U` |
-| View · Module Dependency Graph         | `Cmd+L Cmd+G` | `Ctrl+L Ctrl+G` |
+| Insert · Injected Provider             | `Cmd+L Cmd+I` | `Ctrl+L Ctrl+I` |
 
 ---
 
@@ -381,22 +471,31 @@ src/
 ├── statusBar.ts # Status bar item factory
 ├── commands/
 │ ├── insertLogger.ts # Logger insertion + auto-declaration
+│ ├── removeLogs.ts # Log cleanup with preview
 │ ├── moduleSearcher.ts # Browse all modules + nested navigation
 │ ├── searchModuleFiles.ts # Search files in current module
 │ ├── searchAllModules.ts # Project-wide routes + files search
-│ ├── generateNestFile.ts # File scaffold generator with templates
+│ ├── generateNestFile.ts # File scaffold generator (+ spec option)
 │ ├── methodSearcher.ts # Method/route browser for active file
 │ ├── findProviderUsages.ts # DI-aware find usages via TS language service
-│ └── dependencyGraph.ts # Module dependency graph (cache + webview)
+│ ├── injectProvider.ts # Constructor injection helper
+│ ├── providerHealth.ts # Orphan detector + go-to-providing-module
+│ ├── apiDocsCoverage.ts # Routes missing @ApiOperation
+│ └── registerProviderFix.ts # Quick fix: register orphan providers
 ├── providers/
 │ ├── moduleCodeLensProvider.ts # CodeLens above @Module() with caching
 │ ├── moduleTreeProvider.ts # Sidebar Modules tree (cached roots + filter)
 │ └── routesTreeProvider.ts # Sidebar Routes tree (per-file cache + filter)
 └── utils/
 ├── getEnclosingClassName.ts # Brace-depth class name detection
+├── classBody.ts # Class/constructor scanning for injection
 ├── loggerDeclaration.ts # Logger import and property auto-insert
+├── insertionPoint.ts # Statement-aware log insertion scanning
+├── nestIndex.ts # Workspace index: classes + module registrations
+├── nestProject.ts # NestJS workspace detection
 ├── quickPickHelpers.ts # ThemeIcons, grouping, breadcrumb, shortcuts
-└── routeUtils.ts # Shared route parsing, @Controller prefix, Swagger
+├── routeUtils.ts # Shared route parsing, @Controller prefix, Swagger
+└── targetEditor.ts # Focus-aware editor resolution
 ```
 
 ### Build scripts
@@ -407,7 +506,6 @@ src/
 | `npm run watch`   | Webpack watch mode           |
 | `npm run package` | Production build for `.vsix` |
 | `npm run lint`    | ESLint on `src/`             |
-| `npm run test`    | Run extension tests          |
 
 ---
 
