@@ -8,6 +8,7 @@ import {
   NestedModuleInfo,
   showQuickPickWithShortcuts,
 } from "../utils/quickPickHelpers";
+import { getExcludeGlob } from "../utils/config";
 import { findAllModuleFiles } from "./searchModuleFiles";
 
 async function findNestedModules(
@@ -15,7 +16,7 @@ async function findNestedModules(
 ): Promise<NestedModuleInfo[]> {
   const allModuleFiles = await vscode.workspace.findFiles(
     new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-    "**/node_modules/**",
+    getExcludeGlob(),
   );
 
   const nestedDirs: { uri: vscode.Uri; dir: string }[] = [];
@@ -114,7 +115,7 @@ async function exploreModule(
 export async function moduleSearcherCommand() {
   const moduleFiles = await vscode.workspace.findFiles(
     "**/*.module.ts",
-    "**/node_modules/**",
+    getExcludeGlob(),
   );
   if (!moduleFiles.length) {
     vscode.window.showInformationMessage(await noNestProjectMessage());

@@ -12,8 +12,10 @@ import {
   extractRoutes,
   HTTP_METHOD_ORDER,
   httpMethodIcon,
+  missingDocsFlag,
   RouteInfo,
 } from "../utils/routeUtils";
+import { getExcludeGlob } from "../utils/config";
 import { findAllModuleFiles } from "./searchModuleFiles";
 
 // ─── Route collection (shared parser lives in utils/routeUtils) ──────────────
@@ -21,7 +23,7 @@ import { findAllModuleFiles } from "./searchModuleFiles";
 export async function collectAllRoutes(): Promise<RouteInfo[]> {
   const controllerFiles = await vscode.workspace.findFiles(
     "**/*.controller.ts",
-    "**/node_modules/**",
+    getExcludeGlob(),
   );
 
   const routes: RouteInfo[] = [];
@@ -48,7 +50,7 @@ interface AggregatedFile extends ModuleFile {
 async function collectAllFiles(): Promise<AggregatedFile[]> {
   const moduleFiles = await vscode.workspace.findFiles(
     "**/*.module.ts",
-    "**/node_modules/**",
+    getExcludeGlob(),
   );
 
   const results: AggregatedFile[] = [];
@@ -107,10 +109,13 @@ function buildRouteItems(routes: RouteInfo[]): FileQuickPickItem[] {
     });
 
     for (const route of sorted) {
+      const missingFlag = missingDocsFlag();
       const detail =
         route.summary !== undefined
           ? `L${route.line + 1}  ·  "${route.summary}"`
-          : `L${route.line + 1}  ·  $(eye-close) no @ApiOperation`;
+          : missingFlag
+            ? `L${route.line + 1}  ·  ${missingFlag}`
+            : `L${route.line + 1}`;
       items.push({
         label: `${route.httpMethod}  ${route.fullPath}   ${route.methodName}()`,
         description: controller,

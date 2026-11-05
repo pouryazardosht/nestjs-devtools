@@ -1,11 +1,20 @@
-# 🛠️ NestJS DevTools
+# 🦁 NestJS DevTools
 
-Supercharge your NestJS workflow inside VS Code.
-Quickly insert **smart logger statements**, **navigate every file and route in
-your project**, **find provider usages**, **generate boilerplate**, and
-**browse methods with Swagger docs** — all without leaving the editor.
+**Static NestJS intelligence for VS Code — zero setup, zero instrumentation.**
 
-Built for fast navigation in large NestJS codebases — never touch the file tree again.
+Navigate modules and routes, inject providers, catch DI mistakes before you
+run, generate files with tests, and manage logs — every feature one click
+away in the 🦁 status-bar hub. Built for large NestJS codebases: never touch
+the file tree again.
+
+Unlike runtime tools, NestJS DevTools works on plain source code — no code
+changes, no extra packages, no running app required.
+
+|    | At a glance                                                                                                       |
+| -- | ----------------------------------------------------------------------------------------------------------------- |
+| 🧭 | **Navigate** — module browser with shortcut letters · Routes tree with Swagger tags · Search All · method searcher |
+| 🩺 | **Health** — unregistered-provider detection with a one-click register fix · API docs coverage report              |
+| 🧩 | **Write** — inject providers in one keystroke · statement-aware logger with templates & bulk cleanup · file generator with optional specs |
 
 ---
 
@@ -361,6 +370,56 @@ and more. Unknown suffixes fall back to the generic file icon.
 ---
 
 ## ⚙️ Extension Settings
+
+### `nestjs-devtools.exclude`
+
+Glob patterns excluded from **every** workspace scan — trees, pickers,
+health checks, code lenses. `node_modules` is always excluded; use this for
+`dist`, `.nx`, `coverage`, generated clients, etc. Applies instantly.
+
+```jsonc
+{
+  "nestjs-devtools.exclude": ["**/dist/**", "**/.nx/**", "**/coverage/**"],
+}
+```
+
+### `nestjs-devtools.generate.spec`
+
+`"ask"` (default) · `"always"` · `"never"` — whether generating a
+class-based file offers a matching `.spec.ts` scaffold.
+
+### `nestjs-devtools.routes.colorVerbs`
+
+`true` (default) — color-coded HTTP verb icons (GET blue, POST green, PUT
+orange, PATCH yellow, DELETE red). `false` renders them in the theme
+foreground.
+
+### `nestjs-devtools.swagger.showMissingDocs`
+
+`true` (default) — routes without an `@ApiOperation` summary are flagged
+`no docs` in the trees and searchers.
+
+### `nestjs-devtools.logIncludeValue`
+
+`true` (default) — the selected variable is appended as the log statement's
+second argument (`this.logger.debug("msg", user)`).
+
+### `nestjs-devtools.tree.showCounts`
+
+`true` (default) — per-row file/route counts and view-header badges in the
+sidebar trees.
+
+### `nestjs-devtools.logger.declaration`
+
+Template for the auto-declared logger property; `{Class}` becomes the
+enclosing class name. If the template doesn't reference `Logger`, the
+`@nestjs/common` import is left untouched — useful for Winston or Pino:
+
+```jsonc
+{
+  "nestjs-devtools.logger.declaration": "private readonly logger = winstonLogger;",
+}
+```
 
 ### `nestjs-devtools.logTemplate`
 

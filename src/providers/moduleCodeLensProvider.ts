@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { getExcludeGlob } from "../utils/config";
 import { findAllModuleFiles } from "../commands/searchModuleFiles";
 
 interface CacheEntry {
@@ -10,7 +11,7 @@ interface CacheEntry {
 async function countNestedModules(moduleDir: string): Promise<number> {
   const allModuleFiles = await vscode.workspace.findFiles(
     new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-    "**/node_modules/**",
+    getExcludeGlob(),
   );
 
   const nestedDirs = new Set<string>();

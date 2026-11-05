@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { LOGGER_METHODS } from "../constants";
+import { logIncludeValue, loggerDeclarationTemplate } from "../utils/config";
 import { getTargetEditor } from "../utils/targetEditor";
 import { getEnclosingClassName } from "../utils/getEnclosingClassName";
 import { findInsertionPoint } from "../utils/insertionPoint";
@@ -44,10 +45,15 @@ function buildDeclarationEdits(
   classLine: number,
   editBuilder: vscode.TextEditorEdit,
 ): void {
-  // --- Logger import ---
+  // --- Logger import (only when the declaration template uses Logger) ---
+  const declarationText = loggerDeclarationTemplate().replace(
+    /\{Class\}/g,
+    className,
+  );
+  const declarationUsesLogger = /\bLogger\b/.test(declarationText);
   const { hasImport, importLine, importText } = findLoggerImportState(document);
 
-  if (!hasImport) {
+  if (!hasImport && declarationUsesLogger) {
     if (importLine !== undefined && importText !== undefined) {
       // @nestjs/common import exists but Logger isn't in it — add it
       const updated = importText.replace(
@@ -70,7 +76,7 @@ function buildDeclarationEdits(
 
   const braceLineText = document.lineAt(openingBraceLine).text;
   const indentation = "  "; // 2-space indent inside class body
-  const declaration = `\n${indentation}private readonly logger = new Logger(${className}.name);\n`;
+  const declaration = `\n${indentation}${declarationText}\n`;
 
   // Insert right after the '{' on the class opening line
   const insertPos = new vscode.Position(
@@ -125,7 +131,8 @@ export function insertLoggerStatement(method: string) {
     .replace(/"/g, '\\"');
 
   const insertion = findInsertionPoint(document, lineNumber);
-  const logStatement = `${insertion.indent}this.logger.${method}("${escapedMessage}", ${selectedText});`;
+  const valueArg = logIncludeValue() ? `, ${selectedText}` : "";
+  const logStatement = `${insertion.indent}this.logger.${method}("${escapedMessage}"${valueArg});`;
   const insertLog = (editBuilder: vscode.TextEditorEdit): void => {
     if (insertion.at) {
       // Empty-bodied signature (constructor() {}) — inside the braces

@@ -8,6 +8,7 @@ import {
   ModuleFile,
   showQuickPickWithShortcuts,
 } from "../utils/quickPickHelpers";
+import { getExcludeGlob } from "../utils/config";
 
 function getPossibleSuffixes(nestType: NestType): string[] {
   const pluralTypes = [
@@ -32,7 +33,7 @@ export async function findAllModuleFiles(
 ): Promise<ModuleFile[]> {
   const allTsFiles = await vscode.workspace.findFiles(
     new vscode.RelativePattern(moduleRoot, "**/*.ts"),
-    "**/node_modules/**",
+    getExcludeGlob(),
   );
 
   // Read effective types fresh each call so settings changes apply

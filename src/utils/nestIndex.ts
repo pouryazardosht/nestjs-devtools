@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { getExcludeGlob } from "../utils/config";
 
 /**
  * A workspace-wide index of NestJS classes and module registrations.
@@ -80,7 +81,7 @@ export async function findProviderClasses(): Promise<ProviderClassInfo[]> {
     classCache = new Map();
     const files = await vscode.workspace.findFiles(
       "**/*.ts",
-      "**/node_modules/**",
+      getExcludeGlob(),
     );
     for (const uri of files) {
       const base = path.basename(uri.fsPath);
@@ -124,7 +125,7 @@ export async function getRegistrationIndex(): Promise<RegistrationIndex> {
     registrationCache = new Map();
     const moduleFiles = await vscode.workspace.findFiles(
       "**/*.module.ts",
-      "**/node_modules/**",
+      getExcludeGlob(),
     );
 
     for (const uri of [...moduleFiles].sort(

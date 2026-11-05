@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { getEffectiveNestTypes } from "../constants";
+import { generateSpecMode } from "../utils/config";
 import { brandedTitle, iconForFile } from "../utils/quickPickHelpers";
 
 function toPascalCase(str: string): string {
@@ -341,12 +342,19 @@ export async function generateNestFileCommand(
   // Step 5: offer a matching spec scaffold for class-based types
   if (!SPEC_ELIGIBLE.has(selectedType.suffix)) return;
 
-  const makeSpec = await vscode.window.showInformationMessage(
-    `Generated ${fileName} — also create a matching spec?`,
-    "Create spec",
-    "No",
-  );
-  if (makeSpec !== "Create spec") return;
+  const specMode = generateSpecMode();
+  if (specMode === "never") return;
+
+  let makeSpec = true;
+  if (specMode === "ask") {
+    makeSpec =
+      (await vscode.window.showInformationMessage(
+        `Generated ${fileName} — also create a matching spec?`,
+        "Create spec",
+        "No",
+      )) === "Create spec";
+  }
+  if (!makeSpec) return;
 
   const specName = `${kebabName}.${selectedType.suffix}.spec.ts`;
   const specUri = vscode.Uri.file(path.join(dir, specName));

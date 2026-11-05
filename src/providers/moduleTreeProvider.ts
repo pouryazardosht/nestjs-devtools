@@ -2,11 +2,13 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { findAllModuleFiles } from "../commands/searchModuleFiles";
 import { getEffectiveNestTypes, NestType } from "../constants";
+import { showCounts } from "../utils/config";
 import {
   brandIcon,
   iconForFileName,
   ModuleFile,
 } from "../utils/quickPickHelpers";
+import { getExcludeGlob } from "../utils/config";
 
 /** Direct nested-module entry (same shape as quickPickHelpers' NestedModuleInfo minus fileCount). */
 interface NestedModuleDir {
@@ -140,7 +142,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
 
     const moduleFiles = await vscode.workspace.findFiles(
       "**/*.module.ts",
-      "**/node_modules/**",
+      getExcludeGlob(),
     );
     if (!moduleFiles.length) {
       this.rootCache = [];
@@ -183,24 +185,27 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
 
     // Per-module counts via description (served from the contents cache,
     // so the per-module scans happen once per refresh, not per keystroke)
-    await Promise.all(
-      this.rootCache.map(async (item) => {
-        if (!item.moduleDir) return;
-        const { ownFiles, nestedModuleDirs } = await this.computeModuleContents(
-          item.moduleDir,
-        );
-        item.description = `${ownFiles.length} file${ownFiles.length === 1 ? "" : "s"}${
-          nestedModuleDirs.length > 0
-            ? ` · ${nestedModuleDirs.length} nested`
-            : ""
-        }`;
-      }),
-    );
+    if (showCounts()) {
+      await Promise.all(
+        this.rootCache.map(async (item) => {
+          if (!item.moduleDir) return;
+          const { ownFiles, nestedModuleDirs } =
+            await this.computeModuleContents(item.moduleDir);
+          item.description = `${ownFiles.length} file${ownFiles.length === 1 ? "" : "s"}${
+            nestedModuleDirs.length > 0
+              ? ` · ${nestedModuleDirs.length} nested`
+              : ""
+          }`;
+        }),
+      );
 
-    this.badgeSink?.({
-      value: this.rootCache.length,
-      tooltip: `${this.rootCache.length} root module${this.rootCache.length === 1 ? "" : "s"}`,
-    });
+      this.badgeSink?.({
+        value: this.rootCache.length,
+        tooltip: `${this.rootCache.length} root module${this.rootCache.length === 1 ? "" : "s"}`,
+      });
+    } else {
+      this.badgeSink?.(undefined);
+    }
 
     return this.rootCache;
   }
@@ -217,7 +222,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
       findAllModuleFiles(moduleDir),
       vscode.workspace.findFiles(
         new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-        "**/node_modules/**",
+        getExcludeGlob(),
       ),
     ]);
 

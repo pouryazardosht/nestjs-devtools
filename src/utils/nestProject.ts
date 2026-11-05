@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getExcludeGlob } from "../utils/config";
 
 let cached: Promise<boolean> | undefined;
 
@@ -30,7 +31,7 @@ async function detect(): Promise<boolean> {
   // Cheapest and most reliable signal first (index-backed, early-exits)
   const moduleFiles = await vscode.workspace.findFiles(
     "**/*.module.ts",
-    "**/node_modules/**",
+    getExcludeGlob(),
     1,
   );
   if (moduleFiles.length > 0) return true;

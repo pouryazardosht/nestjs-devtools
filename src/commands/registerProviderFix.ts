@@ -6,6 +6,7 @@ import {
   importInsertionPosition,
 } from "../utils/imports";
 import { findProviderClasses } from "../utils/nestIndex";
+import { getExcludeGlob } from "../utils/config";
 
 const ORPHAN_MESSAGE = "is not registered in any module";
 const MAX_CANDIDATES = 3;
@@ -112,7 +113,7 @@ export class RegisterProviderCodeActionProvider
     const providerDir = path.dirname(providerUri.fsPath);
     const moduleFiles = await vscode.workspace.findFiles(
       "**/*.module.ts",
-      "**/node_modules/**",
+      getExcludeGlob(),
     );
 
     const scored = moduleFiles.map((uri) => {

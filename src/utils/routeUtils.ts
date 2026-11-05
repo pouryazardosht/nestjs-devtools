@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { showMissingDocs, showVerbColors } from "./config";
 
 export const HTTP_DECORATORS = new Set([
   "Get",
@@ -45,13 +46,17 @@ const HTTP_METHOD_COLOR: Record<string, string> = {
   ALL: "charts.purple",
 };
 
-/** ThemeIcon for an HTTP method, color-coded per method. */
+/** ThemeIcon for an HTTP method — color-coded per the routes.colorVerbs setting. */
 export function httpMethodIcon(httpMethod: string): vscode.ThemeIcon {
   const id = HTTP_METHOD_ICON[httpMethod] ?? "symbol-method";
   const color = HTTP_METHOD_COLOR[httpMethod];
-  return color
-    ? new vscode.ThemeIcon(id, new vscode.ThemeColor(color))
-    : new vscode.ThemeIcon(id);
+  if (!showVerbColors() || !color) return new vscode.ThemeIcon(id);
+  return new vscode.ThemeIcon(id, new vscode.ThemeColor(color));
+}
+
+/** Detail suffix for routes without a summary, per swagger.showMissingDocs. */
+export function missingDocsFlag(): string {
+  return showMissingDocs() ? "$(eye-close) no @ApiOperation" : "";
 }
 
 /**

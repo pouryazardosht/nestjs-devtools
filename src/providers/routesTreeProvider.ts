@@ -1,7 +1,10 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { HTTP_METHOD_ORDER, httpMethodIcon, RouteInfo, extractRoutes } from "../utils/routeUtils";
+import { showCounts } from "../utils/config";
 import { brandIcon } from "../utils/quickPickHelpers";
+import { missingDocsFlag } from "../utils/routeUtils";
+import { getExcludeGlob } from "../utils/config";
 
 type TreeItemType = "controller" | "route" | "empty";
 
@@ -121,7 +124,7 @@ export class RoutesTreeProvider
   private async getControllers(): Promise<RouteTreeItem[]> {
     const controllerFiles = await vscode.workspace.findFiles(
       "**/*.controller.ts",
-      "**/node_modules/**",
+      getExcludeGlob(),
     );
 
     const sortedFiles = controllerFiles.sort((a, b) =>
@@ -137,13 +140,24 @@ export class RoutesTreeProvider
         // Description: route count (parsed result comes from the per-file cache)
         const { routes, tag } = await this.routesFor(uri.fsPath);
         total += routes.length;
-        item.description = `${routes.length} route${routes.length === 1 ? "" : "s"}${tag ? ` · ${tag}` : ""}`;
+        item.description = [
+          showCounts()
+            ? `${routes.length} route${routes.length === 1 ? "" : "s"}`
+            : undefined,
+          tag,
+        ]
+          .filter(Boolean)
+          .join(" · ");
         items.push(item);
       }
-      this.badgeSink?.({
-        value: total,
-        tooltip: `${total} route${total === 1 ? "" : "s"} in workspace`,
-      });
+      this.badgeSink?.(
+        showCounts()
+          ? {
+              value: total,
+              tooltip: `${total} route${total === 1 ? "" : "s"} in workspace`,
+            }
+          : undefined,
+      );
       return items;
     }
 
@@ -157,14 +171,20 @@ export class RoutesTreeProvider
       if (matches.length > 0) {
         matching += matches.length;
         const item = new RouteTreeItem(uri, "controller", undefined, uri.fsPath);
-        item.description = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
+        if (showCounts()) {
+          item.description = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
+        }
         items.push(item);
       }
     }
-    this.badgeSink?.({
-      value: matching,
-      tooltip: `${matching} matching route${matching === 1 ? "" : "s"}`,
-    });
+    this.badgeSink?.(
+      showCounts()
+        ? {
+            value: matching,
+            tooltip: `${matching} matching route${matching === 1 ? "" : "s"}`,
+          }
+        : undefined,
+    );
     return items.length > 0
       ? items
       : [new RouteTreeItem(undefined, "empty", undefined, undefined, `No routes matching "${this.filterText.trim()}"`)];
@@ -252,7 +272,8 @@ export class RouteTreeItem extends vscode.TreeItem {
 
     if (type === "route" && route) {
       this.label = `${route.httpMethod}  ${route.fullPath}  —  ${route.methodName}()`;
-      this.description = route.summary ?? "no docs";
+      this.description = route.summary
+        ?? (missingDocsFlag() ? "no docs" : undefined);
       this.tooltip = new vscode.MarkdownString(
         [
           `**${route.httpMethod} ${route.fullPath}**`,

@@ -101,6 +101,17 @@ export function activate(context: vscode.ExtensionContext) {
     invalidateNestIndex(),
   );
 
+  // Settings that affect scans/trees take effect instantly: drop caches and
+  // repaint when the exclude patterns change
+  const settingsSub = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration("nestjs-devtools.exclude")) {
+      invalidateNestIndex();
+      treeProvider.refresh();
+      routesProvider.invalidateAll();
+      codeLensProvider.refresh();
+    }
+  });
+
   // Find usages of the active file's provider (TS language service)
   const findUsagesSub = vscode.commands.registerCommand(
     "nestjs-log-helper.findProviderUsages",
@@ -270,6 +281,7 @@ export function activate(context: vscode.ExtensionContext) {
     codeActionsSub,
     providerDiagnostics,
     indexInvalidationSub,
+    settingsSub,
     findUsagesSub,
     codeLensSub,
     moduleTreeView,

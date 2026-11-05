@@ -8,6 +8,7 @@ import {
   HTTP_METHOD_ORDER,
   httpMethodIcon,
   isBalanced,
+  missingDocsFlag,
 } from "../utils/routeUtils";
 
 interface MethodInfo {
@@ -340,11 +341,12 @@ function buildRouteItem(
   const guardDecorators = m.decorators
     .filter((d) => GUARD_DECORATORS.has(d.replace("@", "")))
     .map((d) => d.replace("@", ""));
+  const missingFlag = missingDocsFlag();
   const detailParts: string[] = [
     m.summary !== undefined
       ? `"${m.summary}"`
-      : "$(eye-close) no @ApiOperation",
-  ];
+      : missingFlag,
+  ].filter(Boolean);
   if (guardDecorators.length > 0) {
     detailParts.push(`$(shield) ${guardDecorators.join(", ")}`);
   }

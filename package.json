@@ -6,13 +6,14 @@
   },
   "icon": "icon.png",
   "publisher": "pouryazardosht",
-  "displayName": "nestjs-devtools",
-  "description": "Quickly browse NestJS modules, jump between related files, and insert contextual logger statements — built for fast navigation in large NestJS codebases.",
-  "version": "0.3.0",
+  "displayName": "NestJS DevTools",
+  "description": "Static NestJS intelligence in VS Code — navigate modules & routes, inject providers, catch DI mistakes before you run, clean up logs, generate files. Zero setup.",
+  "version": "0.3.1",
   "engines": {
     "vscode": "^1.86.0"
   },
   "categories": [
+    "Programming Languages",
     "Other"
   ],
   "repository": {
@@ -29,6 +30,49 @@
           "type": "string",
           "default": "{emoji} {class} ~ {variable}",
           "markdownDescription": "Message template for inserted log statements. Placeholders: `{emoji}` (per-method emoji), `{class}` (enclosing class name), `{variable}` (selected text). Remove `{emoji}` to disable emojis entirely."
+        },
+        "nestjs-devtools.exclude": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Glob patterns excluded from every workspace scan (trees, pickers, health checks) — e.g. `dist`, `.nx`, `coverage`. `node_modules` is always excluded. Applies instantly."
+        },
+        "nestjs-devtools.generate.spec": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "default": "ask",
+          "description": "When generating a class-based file, offer a matching .spec.ts scaffold."
+        },
+        "nestjs-devtools.routes.colorVerbs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color-code HTTP verb icons (GET blue, POST green, PUT orange, PATCH yellow, DELETE red)."
+        },
+        "nestjs-devtools.swagger.showMissingDocs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flag routes that lack an @ApiOperation summary with a 'no docs' marker."
+        },
+        "nestjs-devtools.logIncludeValue": {
+          "type": "boolean",
+          "default": true,
+          "description": "Append the selected variable as the log statement's second argument."
+        },
+        "nestjs-devtools.tree.showCounts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show per-row file/route counts and view-header badges in the sidebar trees."
+        },
+        "nestjs-devtools.logger.declaration": {
+          "type": "string",
+          "default": "private readonly logger = new Logger({Class}.name);",
+          "markdownDescription": "Template for the auto-declared logger property. `{Class}` is replaced with the enclosing class name. If the template does not reference `Logger`, the `@nestjs/common` import is left untouched (e.g. for Winston/Pino)."
         },
         "nestjs-devtools.customTypes": {
           "type": "array",
@@ -476,5 +520,22 @@
     "typescript-eslint": "^8.56.1",
     "webpack": "^5.105.3",
     "webpack-cli": "^6.0.1"
-  }
+  },
+  "keywords": [
+    "nestjs",
+    "nest",
+    "dependency injection",
+    "di",
+    "routes",
+    "controller",
+    "service",
+    "logger",
+    "swagger",
+    "openapi",
+    "code generation",
+    "navigation",
+    "health check",
+    "provider"
+  ],
+  "license": "MIT"
 }
