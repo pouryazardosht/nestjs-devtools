@@ -1,4 +1,11 @@
 import * as vscode from "vscode";
+import {
+  getControllerPrefix,
+  HTTP_DECORATORS,
+  HTTP_METHOD_ORDER,
+  httpMethodIcon,
+  isBalanced,
+} from "../utils/routeUtils";
 
 interface MethodInfo {
   name: string;
@@ -15,6 +22,7 @@ interface MethodInfo {
 
 interface MethodQuickPickItem extends vscode.QuickPickItem {
   line?: number;
+  routePath?: string;
 }
 
 const METHOD_ICON: Record<MethodInfo["type"], string> = {
@@ -25,45 +33,12 @@ const METHOD_ICON: Record<MethodInfo["type"], string> = {
   arrow: "symbol-method",
 };
 
-const HTTP_DECORATORS = new Set([
-  "Get",
-  "Post",
-  "Put",
-  "Patch",
-  "Delete",
-  "Options",
-  "Head",
-  "All",
-  "Sse",
-]);
-
 const GUARD_DECORATORS = new Set([
   "UseGuards",
   "UseInterceptors",
   "UsePipes",
   "UseFilters",
 ]);
-
-const HTTP_METHOD_ICON: Record<string, string> = {
-  GET: "$(arrow-down)",
-  POST: "$(add)",
-  PUT: "$(edit)",
-  PATCH: "$(diff-modified)",
-  DELETE: "$(trash)",
-  OPTIONS: "$(info)",
-  HEAD: "$(eye)",
-  ALL: "$(globe)",
-  SSE: "$(radio-tower)",
-};
-
-function isBalanced(str: string): boolean {
-  let depth = 0;
-  for (const ch of str) {
-    if (ch === "(" || ch === "[") depth++;
-    if (ch === ")" || ch === "]") depth--;
-  }
-  return depth <= 0;
-}
 
 function normalizeParams(raw: string): string {
   if (!raw.trim()) return "";
@@ -91,14 +66,6 @@ function cleanReturnType(raw: string): string {
   return raw;
 }
 
-function getControllerPrefix(document: vscode.TextDocument): string {
-  const text = document.getText();
-  const match = text.match(/@Controller\s*\(\s*['"`]([^'"`]*)['"`]\s*\)/);
-  if (!match) return "";
-  const prefix = match[1].replace(/^\//, "");
-  return prefix ? `/${prefix}` : "";
-}
-
 function getHttpMethod(decorators: string[]): string {
   for (const d of decorators) {
     const name = d.replace("@", "");
@@ -117,7 +84,7 @@ function getRoute(
       /@(?:Get|Post|Put|Patch|Delete|Options|Head|All|Sse)\s*\(\s*['"`]([^'"`]*)['"`]/i,
     );
     if (match) {
-      const routePath = match[1].replace(/^\//, "");
+      const routePath = match[1].replace(/^\/+|\/+$/g, "");
       const full = routePath
         ? `${controllerPrefix}/${routePath}`
         : controllerPrefix || "/";
@@ -349,21 +316,32 @@ function buildRouteItem(
 ): MethodQuickPickItem {
   const httpMethod = getHttpMethod(m.decorators);
   const route = getRoute(m.decoratorDetails, controllerPrefix);
-  const icon = HTTP_METHOD_ICON[httpMethod] ?? "$(symbol-method)";
   const asyncLabel = m.isAsync ? " ~" : "";
 
   const guardDecorators = m.decorators
     .filter((d) => GUARD_DECORATORS.has(d.replace("@", "")))
-    .map((d) => d.replace("@", ""))
-    .join(", ");
-  const guardSuffix = guardDecorators ? `  · ${guardDecorators}` : "";
-  const returnSuffix = m.returnType ? `  · ${m.returnType}` : "";
+    .map((d) => d.replace("@", ""));
+  const detailParts: string[] = [];
+  if (guardDecorators.length > 0) {
+    detailParts.push(`$(shield) ${guardDecorators.join(", ")}`);
+  }
+  if (m.returnType) {
+    detailParts.push(`returns ${m.returnType}`);
+  }
 
   return {
-    label: `${icon} ${httpMethod}  ${route}   ${m.name}${asyncLabel}`,
-    description: `L${m.line + 1}${guardSuffix}${returnSuffix}`,
-    iconPath: new vscode.ThemeIcon("symbol-method"),
+    label: `${httpMethod}  ${route}   ${m.name}()${asyncLabel}`,
+    description: `L${m.line + 1}`,
+    detail: detailParts.length > 0 ? detailParts.join("  ·  ") : undefined,
+    iconPath: httpMethodIcon(httpMethod),
+    routePath: route,
     line: m.line,
+    buttons: [
+      {
+        iconPath: new vscode.ThemeIcon("copy"),
+        tooltip: `Copy ${httpMethod} ${route}`,
+      },
+    ],
   };
 }
 
@@ -411,9 +389,16 @@ function buildMethodItems(
   const items: MethodQuickPickItem[] = [];
   if (methods.length === 0) return items;
 
-  const httpMethods = methods.filter((m) =>
-    m.decorators.some((d) => HTTP_DECORATORS.has(d.replace("@", ""))),
-  );
+  const httpMethods = methods
+    .filter((m) =>
+      m.decorators.some((d) => HTTP_DECORATORS.has(d.replace("@", ""))),
+    )
+    .sort((a, b) => {
+      const idxA = HTTP_METHOD_ORDER.indexOf(getHttpMethod(a.decorators));
+      const idxB = HTTP_METHOD_ORDER.indexOf(getHttpMethod(b.decorators));
+      if (idxA !== idxB) return idxA - idxB;
+      return a.line - b.line;
+    });
   const otherDecorated = methods.filter(
     (m) =>
       m.decorators.length > 0 &&
@@ -478,7 +463,7 @@ export async function methodSearcherCommand() {
     return;
   }
 
-  const controllerPrefix = getControllerPrefix(document);
+  const controllerPrefix = getControllerPrefix(document.getText());
   const currentLine = editor.selection.active.line;
   const currentMethod = [...methods]
     .reverse()
@@ -498,11 +483,19 @@ export async function methodSearcherCommand() {
 
   const quickPick = vscode.window.createQuickPick<MethodQuickPickItem>();
   quickPick.title = `${fileName}  ·  ${titleSuffix}`;
-  quickPick.placeholder = "Filter by method name, route path, or decorator…";
+  quickPick.placeholder =
+    "Filter by route path, HTTP verb, or method name — e.g. users/:id, GET, findOne…";
   quickPick.matchOnDescription = true;
-  quickPick.matchOnDetail = false;
+  quickPick.matchOnDetail = true;
   quickPick.keepScrollPosition = true;
   quickPick.items = allItems;
+
+  quickPick.onDidTriggerItemButton((event) => {
+    const routePath = (event.item as MethodQuickPickItem).routePath;
+    if (routePath) {
+      void vscode.env.clipboard.writeText(routePath);
+    }
+  });
 
   if (currentMethod) {
     const activeItem = allItems.find((i) => i.line === currentMethod.line);
