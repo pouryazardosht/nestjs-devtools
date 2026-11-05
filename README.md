@@ -1,8 +1,10 @@
 # 🛠️ NestJS DevTools
 
 Supercharge your NestJS workflow inside VS Code.
-Quickly insert **smart logger statements**, **navigate every file in your project**,
-**generate boilerplate**, and **browse methods** — all without leaving the editor.
+Quickly insert **smart logger statements**, **navigate every file and route in
+your project**, **find provider usages**, **visualize your module dependency
+graph**, **generate boilerplate**, and **browse methods with Swagger docs** —
+all without leaving the editor.
 
 Built for fast navigation in large NestJS codebases — never touch the file tree again.
 
@@ -59,18 +61,136 @@ Saying **Yes** will:
 
 ---
 
-### 🗂️ Sidebar TreeView
+### 🗂️ Sidebar TreeViews
 
-A dedicated **NestJS DevTools panel** in the activity bar shows your full
-module graph as an expandable tree — always visible, no command needed:
+A dedicated **NestJS DevTools panel** in the activity bar (with its own lion
+logo) hosts two always-visible tree views:
+
+#### Modules
+
+Your full module graph as an expandable tree — no command needed:
 
 - Top-level modules appear at the root, sorted alphabetically.
 - Nested modules appear as collapsible children above a module's own files.
 - Each module's files are grouped by category (Core NestJS, Entities, DTOs, …)
   with ThemeIcons matching their type.
 - Clicking any file opens it immediately.
-- The title bar has a **Refresh** button and a **Generate File** button.
+- The title bar has **Refresh**, **Search** (live filter), and
+  **Generate File** buttons, plus the native **Collapse All** toggle.
 - The tree refreshes automatically when `.ts` files are created or deleted.
+
+#### Routes
+
+Every HTTP route in the workspace, always visible:
+
+- Routes grouped by controller (alphabetical), sorted by HTTP verb then path,
+  with **color-coded verb icons** (GET blue, POST green, PUT orange,
+  PATCH yellow, DELETE red).
+- Clicking a route opens the controller at the handler's line.
+- Routes missing an `@ApiOperation` summary are flagged **no docs**.
+- Saving a controller re-parses **only that file** (debounced) — cheap to
+  keep open all day.
+- Title bar: **Refresh** and **Search** (live filter) buttons, plus
+  **Collapse All**.
+
+#### Live filtering
+
+Both views have a **`$(search)` filter button**. The filter box filters as
+you type — purely in-memory, no re-parsing:
+
+- **Modules view** matches file names and nested module names.
+- **Routes view** matches route path, method name, HTTP verb, or
+  `@ApiOperation` summary; controllers without matches are hidden.
+- The active filter is shown as a message under the view title. Clear the
+  text and press Enter to reset.
+
+---
+
+### 🧭 Route & Method Searchers
+
+#### 🔍 Method Searcher
+
+Press **`Cmd+L Cmd+J`** / **`Ctrl+L Ctrl+J`** to open a compact QuickPick
+listing every method in the active file, grouped into three sections:
+
+- **Routes** — HTTP handler methods (`@Get`, `@Post`, `@Put`, `@Patch`,
+  `@Delete`, …). Each row shows the **full route URL** (controller prefix +
+  method path, e.g. `/blog/:id`) with a color-coded verb icon, a **hover copy
+  button** that copies e.g. `GET /users/:id` without closing the picker, and
+  a detail line with the `@ApiOperation` summary (or a `no @ApiOperation`
+  flag), guards, and return type.
+- **Decorated** — methods with non-HTTP decorators.
+- **Methods** — plain methods, getters, setters, constructors, and arrow
+  function properties.
+
+Other features:
+
+- The method your cursor is inside is **pre-selected** when the picker opens.
+- Arrowing through the list **live-previews** each method by scrolling the
+  editor to that line without closing the picker.
+- Async methods are marked with `~`, private/protected with a lock icon.
+- The title bar shows method count, route count, and **docs coverage**:
+  `blog.controller.ts · 10 methods · 9 routes · 7/9 documented`.
+- `@Controller` prefixes handle all forms — `@Controller('users')`,
+  `@Controller('users', Guard)`, `@Controller({ path: 'users' })` — and
+  multi-line decorators are parsed correctly.
+
+#### 🌐 Search All Modules & Routes
+
+Press **`Cmd+L Cmd+A`** / **`Ctrl+L Ctrl+A`** to search everything at once:
+
+- **Routes grouped by controller** (alphabetical separators), sorted by verb
+  then path — find any endpoint by path fragment, verb, method name, or
+  controller.
+- Every route row has a copy button for the `VERB /path` pair.
+- Below the routes, **every file across every module** with type icons.
+- Route details show the Swagger summary or the `no @ApiOperation` flag.
+
+---
+
+### 🔎 Find Provider Usages
+
+Stand inside a provider (e.g. `users.service.ts`) and press
+**`Cmd+L Cmd+U`** / **`Ctrl+L Ctrl+U`** to list every reference to its class:
+
+- Results **grouped by file**, each row showing the trimmed code line and
+  `L<line>`.
+- **DI injection sites are annotated** — constructor params like
+  `private readonly usersService: UsersService` get a `$(link)` icon and an
+  `injected via constructor` detail.
+- Accepting an entry jumps straight to the reference.
+- Resolved through the TypeScript language service (symbols + references) —
+  **zero workspace scanning**, so it's fast and stays correct with the TS
+  server.
+
+---
+
+### 🕸️ Module Dependency Graph
+
+Press **`Cmd+L Cmd+G`** / **`Ctrl+L Ctrl+G`** (or use the Command Palette) to
+visualize how your modules import each other:
+
+- `imports: [...]` parsed from every `*.module.ts`; levels computed from root
+  modules (modules nobody imports sit at the top).
+- **External modules** (`TypeOrmModule`, `ConfigModule`, …) render as dashed
+  nodes hanging off their importers.
+- **Hover** a node to highlight all its edges; **click** a local module node
+  to open its `.module.ts`.
+- Self-contained SVG renderer in a webview — no bundled graph libraries.
+- The graph is cached and rebuilt lazily when a module file is saved.
+
+---
+
+### 📋 Swagger/OpenAPI awareness
+
+Wherever routes appear, their documentation status does too:
+
+- `@ApiOperation({ summary: … })` summaries are parsed (single-line **or**
+  wrapped across lines, before or after the HTTP decorator) and displayed in
+  the Method Searcher, Search All, and the Routes tree.
+- Routes missing a summary are flagged, and the Method Searcher title shows
+  coverage like `8 routes · 6/8 documented` — a quick way to spot undocumented
+  endpoints.
 
 ---
 
@@ -107,12 +227,6 @@ Navigate between files inside a NestJS module without touching the file tree.
   Clicking it opens the file browser for that module. Counts are cached and
   refresh automatically when files are added or deleted.
 
-#### 🔍 Search all modules
-
-Press **`Cmd+L Cmd+A`** / **`Ctrl+L Ctrl+A`** to fuzzy-search every file
-across every module in the workspace at once — useful when you know the file
-name but not which module it lives in.
-
 ---
 
 ### ⚙️ Generate NestJS File
@@ -129,32 +243,6 @@ Sidebar TreeView) to scaffold a new NestJS file in two steps:
    name derived from your input.
 
 If the file already exists you are prompted before overwriting.
-
----
-
-### 🔍 Method Searcher
-
-Press **`Cmd+L Cmd+J`** / **`Ctrl+L Ctrl+J`** to open a compact QuickPick
-listing every method in the active file, grouped into three sections:
-
-- **Routes** — HTTP handler methods (`@Get`, `@Post`, `@Put`, `@Patch`,
-  `@Delete`, …). Each row shows the HTTP method icon and the **full route URL**
-  (controller prefix + method path, e.g. `/blog/:id`), so you can see your
-  entire API surface at a glance. Guards and interceptors appear in the
-  description column.
-- **Decorated** — methods with non-HTTP decorators.
-- **Methods** — plain methods, getters, setters, constructors, and arrow
-  function properties.
-
-Other features:
-
-- The method your cursor is inside is **pre-selected** when the picker opens.
-- Arrowing through the list **live-previews** each method by scrolling the
-  editor to that line without closing the picker.
-- Async methods are marked with `~`, private/protected with a lock icon.
-- The title bar shows `blog.controller.ts  ·  10 methods  ·  9 routes`.
-- Multi-line method signatures (params spanning multiple lines) are handled
-  correctly.
 
 ---
 
@@ -183,6 +271,13 @@ Other features:
 | **Other Files** | (anything)  | (any `.ts`)       | —        | `file`             |
 
 Plural suffixes are also recognized (`.guards.ts`, `.pipes.ts`, …).
+
+Beyond registered types, **every `.something.ts` suffix gets an icon** derived
+from its filename — 38 suffixes are mapped, including `main` / `bootstrap` →
+rocket, `subscriber` → broadcast, `processor` → tools, `consumer` →
+cloud-download, `cron` / `scheduler` → watch, `adapter` → combine, `provider`
+→ plug, `config` → settings-gear, `schema` → symbol-field, `e2e` → browser,
+and more. Unknown suffixes fall back to the generic file icon.
 
 ---
 
@@ -232,18 +327,20 @@ Each item requires:
 All shortcuts can be customised via **Preferences: Open Keyboard Shortcuts**
 (search for `nestjs-log-helper`).
 
-| Command                        | macOS         | Windows/Linux   |
-| ------------------------------ | ------------- | --------------- |
-| Insert Debug Log               | `Cmd+L Cmd+D` | `Ctrl+L Ctrl+D` |
-| Insert Log                     | `Cmd+L Cmd+L` | `Ctrl+L Ctrl+L` |
-| Insert Warning Log             | `Cmd+L Cmd+W` | `Ctrl+L Ctrl+W` |
-| Insert Error Log               | `Cmd+L Cmd+E` | `Ctrl+L Ctrl+E` |
-| Insert Verbose Log             | `Cmd+L Cmd+V` | `Ctrl+L Ctrl+V` |
-| Search Files in Current Module | `Cmd+L Cmd+K` | `Ctrl+L Ctrl+K` |
-| Open Module Files              | `Cmd+L Cmd+M` | `Ctrl+L Ctrl+M` |
-| Search All Modules             | `Cmd+L Cmd+A` | `Ctrl+L Ctrl+A` |
-| Generate NestJS File           | `Cmd+L Cmd+N` | `Ctrl+L Ctrl+N` |
-| Search Methods in File         | `Cmd+L Cmd+J` | `Ctrl+L Ctrl+J` |
+| Command                                | macOS         | Windows/Linux   |
+| -------------------------------------- | ------------- | --------------- |
+| Insert Debug Log                       | `Cmd+L Cmd+D` | `Ctrl+L Ctrl+D` |
+| Insert Log                             | `Cmd+L Cmd+L` | `Ctrl+L Ctrl+L` |
+| Insert Warning Log                     | `Cmd+L Cmd+W` | `Ctrl+L Ctrl+W` |
+| Insert Error Log                       | `Cmd+L Cmd+E` | `Ctrl+L Ctrl+E` |
+| Insert Verbose Log                     | `Cmd+L Cmd+V` | `Ctrl+L Ctrl+V` |
+| Navigate · Current Module Files        | `Cmd+L Cmd+K` | `Ctrl+L Ctrl+K` |
+| Navigate · Browse Modules              | `Cmd+L Cmd+M` | `Ctrl+L Ctrl+M` |
+| Navigate · Search All Modules & Routes | `Cmd+L Cmd+A` | `Ctrl+L Ctrl+A` |
+| Navigate · Methods in File             | `Cmd+L Cmd+J` | `Ctrl+L Ctrl+J` |
+| Generate NestJS File                   | `Cmd+L Cmd+N` | `Ctrl+L Ctrl+N` |
+| Find · Provider Usages                 | `Cmd+L Cmd+U` | `Ctrl+L Ctrl+U` |
+| View · Module Dependency Graph         | `Cmd+L Cmd+G` | `Ctrl+L Ctrl+G` |
 
 ---
 
@@ -279,23 +376,27 @@ Development Host.
 
 ```
 src/
-├── extension.ts # Entry point: commands, status bar, CodeLens, tree, watcher
+├── extension.ts # Entry point: commands, status bar, CodeLens, trees, watcher
 ├── constants.ts # LOGGER_METHODS, NEST_TYPES, getEffectiveNestTypes()
 ├── statusBar.ts # Status bar item factory
 ├── commands/
 │ ├── insertLogger.ts # Logger insertion + auto-declaration
 │ ├── moduleSearcher.ts # Browse all modules + nested navigation
 │ ├── searchModuleFiles.ts # Search files in current module
-│ ├── searchAllModules.ts # Project-wide fuzzy search
+│ ├── searchAllModules.ts # Project-wide routes + files search
 │ ├── generateNestFile.ts # File scaffold generator with templates
-│ └── methodSearcher.ts # Method/route browser for active file
+│ ├── methodSearcher.ts # Method/route browser for active file
+│ ├── findProviderUsages.ts # DI-aware find usages via TS language service
+│ └── dependencyGraph.ts # Module dependency graph (cache + webview)
 ├── providers/
 │ ├── moduleCodeLensProvider.ts # CodeLens above @Module() with caching
-│ └── moduleTreeProvider.ts # Sidebar TreeView data provider
+│ ├── moduleTreeProvider.ts # Sidebar Modules tree (cached roots + filter)
+│ └── routesTreeProvider.ts # Sidebar Routes tree (per-file cache + filter)
 └── utils/
 ├── getEnclosingClassName.ts # Brace-depth class name detection
 ├── loggerDeclaration.ts # Logger import and property auto-insert
-└── quickPickHelpers.ts # ThemeIcons, grouping, breadcrumb, shortcuts
+├── quickPickHelpers.ts # ThemeIcons, grouping, breadcrumb, shortcuts
+└── routeUtils.ts # Shared route parsing, @Controller prefix, Swagger
 ```
 
 ### Build scripts

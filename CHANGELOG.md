@@ -5,6 +5,81 @@ All notable changes to **NestJS DevTools** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-05
+
+### Added
+
+- **Routes tree view.** A second tree view in the NestJS DevTools panel lists
+  every route in the workspace, grouped by controller and sorted by HTTP verb
+  then path, with color-coded verb icons. Clicking a route opens the
+  controller at the handler's line. Routes are cached per controller file;
+  saving a controller re-parses only that file (debounced 300 ms).
+
+- **Find · Provider Usages** (`Cmd+L Cmd+U` / `Ctrl+L Ctrl+U`). Lists every
+  reference to the active file's exported class, grouped by file, with DI
+  injection sites annotated (`injected via constructor`). Resolves through
+  the TypeScript language service — no workspace scanning.
+
+- **View · Module Dependency Graph** (`Cmd+L Cmd+G` / `Ctrl+L Ctrl+G`). Parses
+  `imports: [...]` from every `*.module.ts` and renders an interactive SVG
+  dependency graph in a webview: levels computed from root modules, external
+  modules (e.g. `TypeOrmModule`) shown dashed, hover highlights connected
+  edges, click a node to open its module file. Self-contained renderer — no
+  bundled dependencies. The graph is cached and rebuilt lazily when a module
+  file is saved.
+
+- **Swagger/OpenAPI awareness.** `@ApiOperation` summaries are parsed (single
+  or multi-line, before or after the HTTP decorator) and shown in the Method
+  Searcher details, Search All route details, and the Routes tree. Routes
+  without a summary are flagged `no @ApiOperation`. The Method Searcher title
+  shows docs coverage (e.g. `8 routes · 6/8 documented`).
+
+- **Tree view search & collapse-all.** Both sidebar views get a `$(search)`
+  title-bar button that opens a live filter box (filters as you type, purely
+  in-memory) and the native collapse-all button. The Modules view filters
+  files and nested module names; the Routes view filters by path, method
+  name, verb, or summary and hides controllers without matches.
+
+- **Icons for every file type.** The icon map grew from 18 to 38 suffixes —
+  app entry (`main`, `bootstrap`), queue/event handlers (`subscriber`,
+  `processor`, `consumer`, `job`, `queue`), scheduling (`cron`, `scheduler`,
+  `task`), and patterns/utilities (`serializer`, `adapter`, `provider`,
+  `factory`, `helper`, `util`, `constant`, `config`, `validation`, `schema`,
+  `model`, `loader`, `e2e`). Files are now iconified by their actual filename
+  suffix even when the suffix isn't a registered NestJS type (e.g. helpers).
+
+- **Custom type icons.** `nestjs-devtools.customTypes` entries accept an
+  optional `icon` (VS Code codicon id) used everywhere the type appears.
+
+- **Custom activity bar icon.** The NestJS DevTools container now uses a
+  traced monochrome SVG of the extension logo (`media/view-icon.svg`), tinted
+  by the active theme via `currentColor`.
+
+### Changed
+
+- **Route parsing.** `@Controller` prefixes now handle extra decorator args
+  (`@Controller('users', Guard)`), the options-object form
+  (`@Controller({ path: 'users' })`), and trailing slashes. Previously the
+  prefix silently dropped, breaking route search for those controllers.
+- **Route & method listing UX.** HTTP verbs are real color-coded ThemeIcons
+  via `iconPath` (no longer `$()` text in labels, which polluted fuzzy
+  matching). Route rows are two-line items with guards/return type in the
+  detail row, show `method()` with parens, and have a copy-route button that
+  copies e.g. `GET /users/:id` without closing the picker.
+- **Search All routes are grouped by controller** with per-controller
+  separators, sorted by verb then path, and file items use type icons.
+- **Shared route parser.** `RouteInfo`/`extractRoutes`/`getControllerPrefix`
+  now live in `utils/routeUtils.ts` and serve Search All, the Routes tree,
+  and Swagger summary extraction — removing the previously duplicated logic.
+
+### Fixed
+
+- Multi-line decorators no longer lose their contents: the parser cursor now
+  skips consumed continuation lines, so a wrapped `@ApiOperation({
+  summary: ... })` is parsed instead of being silently cleared (which also
+  fixes multi-line `@Get(...)` route paths and decorators in the Method
+  Searcher).
+
 ## [0.1.3] - 2026-07-05
 
 ### Added
