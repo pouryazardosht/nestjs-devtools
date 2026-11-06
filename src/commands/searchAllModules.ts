@@ -15,8 +15,13 @@ import {
   missingDocsFlag,
   RouteInfo,
 } from "../utils/routeUtils";
+import { getEffectiveNestTypes, matchNestType } from "../constants";
 import { getExcludeGlob } from "../utils/config";
-import { findAllModuleFiles } from "./searchModuleFiles";
+import {
+  mapWithConcurrency,
+  readTextFile,
+  SCAN_CONCURRENCY,
+} from "../utils/scan";
 
 // ─── Route collection (shared parser lives in utils/routeUtils) ──────────────
 
@@ -26,19 +31,16 @@ export async function collectAllRoutes(): Promise<RouteInfo[]> {
     getExcludeGlob(),
   );
 
-  const routes: RouteInfo[] = [];
+  const perFile = await mapWithConcurrency(
+    controllerFiles,
+    SCAN_CONCURRENCY,
+    async (uri): Promise<RouteInfo[]> => {
+      const text = await readTextFile(uri);
+      return text === undefined ? [] : extractRoutes(uri, text);
+    },
+  );
 
-  for (const uri of controllerFiles) {
-    try {
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const fileRoutes = extractRoutes(uri, doc.getText());
-      routes.push(...fileRoutes);
-    } catch {
-      // skip unreadable files
-    }
-  }
-
-  return routes;
+  return perFile.flat();
 }
 
 // ─── File collection (existing logic) ────────────────────────────────────────
@@ -47,25 +49,69 @@ interface AggregatedFile extends ModuleFile {
   moduleName: string;
 }
 
+/**
+ * Aggregates every file under any module with ONE workspace scan instead
+ * of a subtree scan per module (overlapping nested modules used to rescan
+ * the same directories repeatedly). Each file is attributed to its
+ * nearest enclosing module directory — deterministic, where the old
+ * per-module scan order made the grouping arbitrary for nested modules.
+ */
 async function collectAllFiles(): Promise<AggregatedFile[]> {
-  const moduleFiles = await vscode.workspace.findFiles(
-    "**/*.module.ts",
-    getExcludeGlob(),
-  );
+  const [moduleFiles, allTsFiles] = await Promise.all([
+    vscode.workspace.findFiles("**/*.module.ts", getExcludeGlob()),
+    vscode.workspace.findFiles("**/*.ts", getExcludeGlob()),
+  ]);
 
-  const results: AggregatedFile[] = [];
-  const seenPaths = new Set<string>();
+  if (moduleFiles.length === 0) {
+    return [];
+  }
 
+  const moduleDirs = new Map<string, string>();
   for (const moduleFile of moduleFiles) {
-    const moduleDir = path.dirname(moduleFile.fsPath);
-    const moduleName = path.basename(moduleFile.fsPath, ".module.ts");
-    const files = await findAllModuleFiles(moduleDir);
+    moduleDirs.set(
+      path.dirname(moduleFile.fsPath),
+      path.basename(moduleFile.fsPath, ".module.ts"),
+    );
+  }
 
-    for (const file of files) {
-      if (seenPaths.has(file.uri.fsPath)) continue;
-      seenPaths.add(file.uri.fsPath);
-      results.push({ ...file, moduleName });
+  const nestTypes = getEffectiveNestTypes();
+  const results: AggregatedFile[] = [];
+
+  for (const file of allTsFiles) {
+    const fileName = path.basename(file.fsPath);
+
+    // Walk up from the file's directory to the nearest module directory
+    let dir = path.dirname(file.fsPath);
+    let moduleName: string | undefined;
+    for (;;) {
+      const hit = moduleDirs.get(dir);
+      if (hit) {
+        moduleName = hit;
+        break;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
     }
+    if (!moduleName) {
+      continue; // not under any module — same as before
+    }
+
+    const matchedType = matchNestType(fileName, nestTypes);
+    results.push({
+      ...(matchedType ?? {
+        suffix: "",
+        typeLabel: "File",
+        shortcut: "",
+        category: "Other Files",
+      }),
+      uri: file,
+      relativePath: vscode.workspace.asRelativePath(file),
+      fileName,
+      moduleName,
+    });
   }
 
   return results;

@@ -1,6 +1,11 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { getExcludeGlob } from "../utils/config";
+import {
+  mapWithConcurrency,
+  readTextFile,
+  SCAN_CONCURRENCY,
+} from "../utils/scan";
 
 /**
  * A workspace-wide index of NestJS classes and module registrations.
@@ -38,10 +43,54 @@ export function invalidateNestIndex(): void {
   registrationCache = undefined;
 }
 
+/**
+ * Incremental update on save: re-extracts classes for the saved file only,
+ * leaving every other file's entry untouched. Saves of non-indexed files
+ * (spec/d.ts, non-TS) keep the cache valid for the rest of the workspace.
+ *
+ * Module-file saves drop just the registration cache — it maps class →
+ * *first* registering module across all module files, so a single module
+ * can't be merged in isolation; rebuilding it is cheap (module files are
+ * few) and lazy (next use).
+ */
+export function updateNestIndexForSave(doc: vscode.TextDocument): void {
+  const fsPath = doc.uri.fsPath;
+  if (!fsPath.endsWith(".ts")) return;
+
+  if (classCache) {
+    const base = path.basename(fsPath);
+    if (base.endsWith(".spec.ts") || base.endsWith(".d.ts")) {
+      classCache.delete(fsPath);
+    } else {
+      const classes = extractProviderClasses(doc.uri, doc.getText());
+      if (classes.length > 0) {
+        classCache.set(fsPath, classes);
+      } else {
+        classCache.delete(fsPath);
+      }
+    }
+  }
+
+  if (registrationCache && path.basename(fsPath).endsWith(".module.ts")) {
+    registrationCache = undefined;
+  }
+}
+
+/** Drops one file's index entries (file deleted). */
+export function removeNestIndexEntry(uri: vscode.Uri): void {
+  classCache?.delete(uri.fsPath);
+  if (registrationCache && path.basename(uri.fsPath).endsWith(".module.ts")) {
+    registrationCache = undefined;
+  }
+}
+
 /** Extracts `export class X` declarations with a Nest class decorator above. */
-function extractProviderClasses(doc: vscode.TextDocument): ProviderClassInfo[] {
+function extractProviderClasses(
+  uri: vscode.Uri,
+  text: string,
+): ProviderClassInfo[] {
   const results: ProviderClassInfo[] = [];
-  const lines = doc.getText().split("\n");
+  const lines = text.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(
@@ -66,7 +115,7 @@ function extractProviderClasses(doc: vscode.TextDocument): ProviderClassInfo[] {
     if (decorator) {
       results.push({
         className: m[1],
-        uri: doc.uri,
+        uri,
         line: i,
         decorator,
       });
@@ -78,20 +127,37 @@ function extractProviderClasses(doc: vscode.TextDocument): ProviderClassInfo[] {
 /** All NestJS-decorated classes in the workspace (cached). */
 export async function findProviderClasses(): Promise<ProviderClassInfo[]> {
   if (!classCache) {
-    classCache = new Map();
     const files = await vscode.workspace.findFiles(
       "**/*.ts",
       getExcludeGlob(),
     );
-    for (const uri of files) {
+    const candidates = files.filter((uri) => {
       const base = path.basename(uri.fsPath);
-      if (base.endsWith(".spec.ts") || base.endsWith(".d.ts")) continue;
-      try {
-        const doc = await vscode.workspace.openTextDocument(uri);
-        const classes = extractProviderClasses(doc);
-        if (classes.length > 0) classCache.set(uri.fsPath, classes);
-      } catch {
-        // skip unreadable files
+      return !base.endsWith(".spec.ts") && !base.endsWith(".d.ts");
+    });
+
+    const entries = await mapWithConcurrency(
+      candidates,
+      SCAN_CONCURRENCY,
+      async (
+        uri,
+      ): Promise<[string, ProviderClassInfo[]] | undefined> => {
+        const text = await readTextFile(uri);
+        if (text === undefined) {
+          return undefined; // skip unreadable files
+        }
+        const classes = extractProviderClasses(uri, text);
+        if (classes.length === 0) {
+          return undefined;
+        }
+        return [uri.fsPath, classes];
+      },
+    );
+
+    classCache = new Map();
+    for (const entry of entries) {
+      if (entry) {
+        classCache.set(entry[0], entry[1]);
       }
     }
   }
@@ -122,33 +188,39 @@ function parseModuleArray(text: string, key: string): string[] {
  */
 export async function getRegistrationIndex(): Promise<RegistrationIndex> {
   if (!registrationCache) {
-    registrationCache = new Map();
     const moduleFiles = await vscode.workspace.findFiles(
       "**/*.module.ts",
       getExcludeGlob(),
     );
-
-    for (const uri of [...moduleFiles].sort(
+    const sorted = [...moduleFiles].sort(
       (a, b) => a.fsPath.length - b.fsPath.length,
-    )) {
-      try {
-        const doc = await vscode.workspace.openTextDocument(uri);
-        const text = doc.getText();
-        const names = [
-          ...parseModuleArray(text, "providers"),
-          ...parseModuleArray(text, "controllers"),
-          ...parseModuleArray(text, "exports"),
-        ];
-        for (const name of names) {
-          if (!registrationCache.has(name)) {
-            registrationCache.set(name, {
-              moduleName: path.basename(uri.fsPath, ".module.ts"),
-              uri,
-            });
-          }
+    );
+
+    // Read in parallel, then insert in path-length order so the "first
+    // module to register a class wins" rule matches the sequential scan
+    const texts = await mapWithConcurrency(sorted, SCAN_CONCURRENCY, (uri) =>
+      readTextFile(uri),
+    );
+
+    registrationCache = new Map();
+    for (let i = 0; i < sorted.length; i++) {
+      const text = texts[i];
+      if (text === undefined) {
+        continue; // skip unreadable files
+      }
+      const uri = sorted[i];
+      const names = [
+        ...parseModuleArray(text, "providers"),
+        ...parseModuleArray(text, "controllers"),
+        ...parseModuleArray(text, "exports"),
+      ];
+      for (const name of names) {
+        if (!registrationCache.has(name)) {
+          registrationCache.set(name, {
+            moduleName: path.basename(uri.fsPath, ".module.ts"),
+            uri,
+          });
         }
-      } catch {
-        // skip unreadable files
       }
     }
   }

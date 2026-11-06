@@ -14,10 +14,18 @@ import { findAllModuleFiles } from "./searchModuleFiles";
 async function findNestedModules(
   moduleDir: string,
 ): Promise<NestedModuleInfo[]> {
-  const allModuleFiles = await vscode.workspace.findFiles(
-    new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-    getExcludeGlob(),
-  );
+  // One pair of scans for the whole module subtree — per-nested-module
+  // subtree rescans used to re-walk the same directories repeatedly
+  const [allModuleFiles, allTsFiles] = await Promise.all([
+    vscode.workspace.findFiles(
+      new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
+      getExcludeGlob(),
+    ),
+    vscode.workspace.findFiles(
+      new vscode.RelativePattern(moduleDir, "**/*.ts"),
+      getExcludeGlob(),
+    ),
+  ]);
 
   const nestedDirs: { uri: vscode.Uri; dir: string }[] = [];
   const sorted = [...allModuleFiles]
@@ -33,18 +41,18 @@ async function findNestedModules(
     nestedDirs.push({ uri: file, dir });
   }
 
-  const result: NestedModuleInfo[] = [];
-  for (const mod of nestedDirs) {
-    const files = await findAllModuleFiles(mod.dir);
-    result.push({
-      uri: mod.uri,
-      dir: mod.dir,
-      base: path.basename(mod.uri.fsPath, ".module.ts"),
-      fileCount: files.length,
-    });
-  }
+  const underDir = (dir: string): number =>
+    allTsFiles.filter((f) => {
+      const d = path.dirname(f.fsPath);
+      return d === dir || d.startsWith(dir + path.sep);
+    }).length;
 
-  return result;
+  return nestedDirs.map((mod) => ({
+    uri: mod.uri,
+    dir: mod.dir,
+    base: path.basename(mod.uri.fsPath, ".module.ts"),
+    fileCount: underDir(mod.dir),
+  }));
 }
 
 function buildBreadcrumbTitle(

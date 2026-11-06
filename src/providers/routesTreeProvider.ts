@@ -5,6 +5,7 @@ import { showCounts } from "../utils/config";
 import { brandIcon } from "../utils/quickPickHelpers";
 import { missingDocsFlag } from "../utils/routeUtils";
 import { getExcludeGlob } from "../utils/config";
+import { mapWithConcurrency, readTextFile, SCAN_CONCURRENCY } from "../utils/scan";
 
 type TreeItemType = "controller" | "route" | "empty";
 
@@ -132,14 +133,23 @@ export class RoutesTreeProvider
     );
 
     const filter = this.filterText.trim().toLowerCase();
+
+    // First paint parses every controller — do it concurrently (bounded)
+    // instead of one sequential open per controller
+    const entries = await mapWithConcurrency(
+      sortedFiles,
+      SCAN_CONCURRENCY,
+      (uri) => this.routesFor(uri.fsPath),
+    );
+
     if (!filter) {
       let total = 0;
       const items: RouteTreeItem[] = [];
-      for (const uri of sortedFiles) {
-        const item = new RouteTreeItem(uri, "controller", undefined, uri.fsPath);
-        // Description: route count (parsed result comes from the per-file cache)
-        const { routes, tag } = await this.routesFor(uri.fsPath);
+      for (let i = 0; i < sortedFiles.length; i++) {
+        const uri = sortedFiles[i];
+        const { routes, tag } = entries[i];
         total += routes.length;
+        const item = new RouteTreeItem(uri, "controller", undefined, uri.fsPath);
         item.description = [
           showCounts()
             ? `${routes.length} route${routes.length === 1 ? "" : "s"}`
@@ -165,8 +175,9 @@ export class RoutesTreeProvider
     // Parse results come from the per-file cache, so this stays cheap.
     const items: RouteTreeItem[] = [];
     let matching = 0;
-    for (const uri of sortedFiles) {
-      const { routes } = await this.routesFor(uri.fsPath);
+    for (let i = 0; i < sortedFiles.length; i++) {
+      const uri = sortedFiles[i];
+      const { routes } = entries[i];
       const matches = routes.filter((r) => routeMatchesFilter(r, filter));
       if (matches.length > 0) {
         matching += matches.length;
@@ -194,16 +205,12 @@ export class RoutesTreeProvider
   private async routesFor(controllerPath: string): Promise<RouteCacheEntry> {
     let entry = this.cache.get(controllerPath);
     if (!entry) {
-      try {
-        const doc = await vscode.workspace.openTextDocument(controllerPath);
-        const text = doc.getText();
-        entry = {
-          routes: extractRoutes(vscode.Uri.file(controllerPath), text),
-          tag: parseApiTags(text),
-        };
-      } catch {
-        entry = { routes: [] };
-      }
+      const uri = vscode.Uri.file(controllerPath);
+      const text = await readTextFile(uri);
+      entry = {
+        routes: text === undefined ? [] : extractRoutes(uri, text),
+        tag: text ? parseApiTags(text) : undefined,
+      };
       this.cache.set(controllerPath, entry);
     }
     return entry;

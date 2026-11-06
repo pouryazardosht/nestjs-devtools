@@ -11,6 +11,19 @@ import { getExcludeGlob } from "../utils/config";
 const ORPHAN_MESSAGE = "is not registered in any module";
 const MAX_CANDIDATES = 3;
 
+/**
+ * Cached list of all module.ts files in the workspace. Code actions are
+ * requested on every cursor movement in a file with diagnostics —
+ * re-running findFiles per request turned each caret move into a
+ * workspace scan. Invalidated by the file watcher and exclude-setting
+ * changes (invalidateModuleFilesCache).
+ */
+let moduleFilesCache: vscode.Uri[] | undefined;
+
+export function invalidateModuleFilesCache(): void {
+  moduleFilesCache = undefined;
+}
+
 interface TextPos {
   line: number;
   col: number;
@@ -111,12 +124,15 @@ export class RegisterProviderCodeActionProvider
     providerUri: vscode.Uri,
   ): Promise<{ label: string; uri: vscode.Uri; distance: number }[]> {
     const providerDir = path.dirname(providerUri.fsPath);
-    const moduleFiles = await vscode.workspace.findFiles(
-      "**/*.module.ts",
-      getExcludeGlob(),
-    );
 
-    const scored = moduleFiles.map((uri) => {
+    if (!moduleFilesCache) {
+      moduleFilesCache = await vscode.workspace.findFiles(
+        "**/*.module.ts",
+        getExcludeGlob(),
+      );
+    }
+
+    const scored = moduleFilesCache.map((uri) => {
       const rel = path.relative(path.dirname(uri.fsPath), providerDir);
       const isAncestor = !rel.startsWith("..");
       const depth = rel === "" ? 0 : rel.split(path.sep).length;

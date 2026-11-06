@@ -138,3 +138,34 @@ export function getEffectiveNestTypes(): NestType[] {
 
   return [...NEST_TYPES, ...validCustomTypes];
 }
+
+const PLURAL_SUFFIXES = new Set([
+  "guard",
+  "gateway",
+  "interceptor",
+  "pipe",
+  "filter",
+  "decorator",
+  "resolver",
+  "middleware",
+  "strategy",
+]);
+
+/**
+ * Matches a file name against the Nest types (singular or plural suffix,
+ * e.g. ".guard.ts" / ".guards.ts"). Returns undefined for plain files.
+ */
+export function matchNestType(
+  fileName: string,
+  nestTypes: NestType[],
+): NestType | undefined {
+  for (const t of nestTypes) {
+    const suffixes = PLURAL_SUFFIXES.has(t.suffix)
+      ? [t.suffix, t.suffix + "s"]
+      : [t.suffix];
+    if (suffixes.some((s) => fileName.endsWith(`.${s}.ts`))) {
+      return t;
+    }
+  }
+  return undefined;
+}

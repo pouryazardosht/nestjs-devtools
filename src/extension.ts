@@ -12,16 +12,26 @@ import {
   goToProvidingModuleCommand,
 } from "./commands/providerHealth";
 import { removeLogsCommand } from "./commands/removeLogs";
-import { RegisterProviderCodeActionProvider } from "./commands/registerProviderFix";
+import {
+  invalidateModuleFilesCache,
+  RegisterProviderCodeActionProvider,
+} from "./commands/registerProviderFix";
 import { searchAllModulesCommand } from "./commands/searchAllModules";
 import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
 import { LOGGER_METHODS } from "./constants";
 import { ModuleCodeLensProvider } from "./providers/moduleCodeLensProvider";
 import { ModuleTreeProvider } from "./providers/moduleTreeProvider";
 import { RoutesTreeProvider } from "./providers/routesTreeProvider";
-import { invalidateNestIndex } from "./utils/nestIndex";
+import {
+  invalidateNestIndex,
+  removeNestIndexEntry,
+  updateNestIndexForSave,
+} from "./utils/nestIndex";
 import { trackActiveEditor } from "./utils/targetEditor";
 import { createModuleSearcherStatusBarItem } from "./statusBar";
+
+/** Pending debounced watcher refresh — cleared on deactivation. */
+let watcherRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   // Logger commands
@@ -95,10 +105,11 @@ export function activate(context: vscode.ExtensionContext) {
     { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
   );
 
-  // The Nest index (classes + module registrations) only caches — file
-  // saves just drop the cache; the next command rebuilds lazily
-  const indexInvalidationSub = vscode.workspace.onDidSaveTextDocument(() =>
-    invalidateNestIndex(),
+  // The Nest index (classes + module registrations) caches per file — a
+  // save reparses only that file; the next command never rescans the
+  // workspace (except exclude-setting changes, which drop the whole cache)
+  const indexInvalidationSub = vscode.workspace.onDidSaveTextDocument((doc) =>
+    updateNestIndexForSave(doc),
   );
 
   // Settings that affect scans/trees take effect instantly: drop caches and
@@ -106,6 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
   const settingsSub = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration("nestjs-devtools.exclude")) {
       invalidateNestIndex();
+      invalidateModuleFilesCache();
       treeProvider.refresh();
       routesProvider.invalidateAll();
       codeLensProvider.refresh();
@@ -158,16 +170,35 @@ export function activate(context: vscode.ExtensionContext) {
   treeProvider.badgeSink = (badge) => (moduleTreeView.badge = badge);
   routesProvider.badgeSink = (badge) => (routesTreeView.badge = badge);
 
-  // Refresh tree + CodeLens when .ts files are created or deleted
+  // Refresh tree + CodeLens when .ts files are created or deleted.
+  // Builds (nest g, tsc --watch, git checkout) emit bursts of events —
+  // coalesce them into a single refresh instead of one full rescan per
+  // event file (each full refresh rescans every module dir).
+  const debouncedWatcherRefresh = (): void => {
+    if (watcherRefreshTimer) {
+      clearTimeout(watcherRefreshTimer);
+    }
+    watcherRefreshTimer = setTimeout(() => {
+      watcherRefreshTimer = undefined;
+      codeLensProvider.refresh();
+      treeProvider.refresh();
+    }, 300);
+  };
+
   const watcher = vscode.workspace.createFileSystemWatcher("**/*.ts");
   watcher.onDidCreate(() => {
-    codeLensProvider.refresh();
-    treeProvider.refresh();
+    invalidateModuleFilesCache();
+    debouncedWatcherRefresh();
   });
-  watcher.onDidDelete(() => {
-    codeLensProvider.refresh();
-    treeProvider.refresh();
-    routesProvider.invalidateAll();
+  watcher.onDidDelete((uri) => {
+    removeNestIndexEntry(uri);
+    invalidateModuleFilesCache();
+    // Only a deleted controller's own parse entry goes stale — routes of
+    // every other controller stay valid (was: full cache clear per delete)
+    if (uri.fsPath.endsWith(".controller.ts")) {
+      routesProvider.invalidateFile(uri);
+    }
+    debouncedWatcherRefresh();
   });
 
   // Refresh tree command (the inline button in the view title bar)
@@ -301,4 +332,8 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function deactivate() {}
+export function deactivate() {
+  if (watcherRefreshTimer) {
+    clearTimeout(watcherRefreshTimer);
+  }
+}
