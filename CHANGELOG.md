@@ -5,6 +5,40 @@ All notable changes to **NestJS DevTools** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-11-07
+
+### Performance
+
+- **Saving a file no longer rescans the workspace.** The Nest index used to
+  be dropped on every save and rebuilt from scratch the next time a command
+  needed it — with autosave on, that meant a full workspace scan before
+  nearly every action. A save now reparses only the saved file, and deleted
+  files leave the index immediately.
+- **Faster scans on every platform.** All workspace-wide scans (provider
+  index, module registrations, route collection, routes tree) now read
+  files with bounded parallelism instead of strictly one-by-one — the
+  biggest difference is on Windows with real-time antivirus, where each
+  file round-trip is expensive. Scans also no longer open every file as a
+  VS Code document, so large monorepos use noticeably less memory.
+- **Search All runs two scans, not one per module.** The all-modules picker
+  previously walked each module's subtree separately — a project with 30
+  modules rescanned the same directories about 30 times. A single
+  workspace scan now groups every file under its nearest enclosing module.
+  As a small visible change, files in nested modules now always group
+  under their closest module (previously the grouping depended on scan
+  order).
+- **Typing next to a Provider Health warning no longer triggers scans.**
+  The register-provider quick fix caches its module list instead of
+  re-running a workspace search on every code-action request — VS Code
+  requests code actions on every cursor movement.
+- **File bursts are handled once, not per file.** Creating or deleting
+  many files at once (`nest g`, builds, git checkout) now triggers a
+  single sidebar refresh 300 ms after the burst settles, instead of one
+  full refresh per file. Deleting a controller re-parses only that
+  controller's routes, not every controller in the workspace.
+- **The Routes tree parses controllers in parallel** when first opened,
+  instead of one controller at a time.
+
 ## [0.3.1] - 2026-11-06
 
 ### Added
