@@ -1,3 +1,4 @@
+import * as path from "path";
 import * as vscode from "vscode";
 import { netDelta, stripCode } from "../utils/insertionPoint";
 import { getTargetEditor } from "../utils/targetEditor";
@@ -104,7 +105,7 @@ export async function removeLogsCommand(): Promise<void> {
         mode: "choose",
       },
     ],
-    { title: brandedTitle(`Clean up logs in ${document.fileName.split("/").pop()}`) },
+    { title: brandedTitle(`Clean up logs in ${path.basename(document.fileName)}`) },
   );
   if (!mode) return;
 

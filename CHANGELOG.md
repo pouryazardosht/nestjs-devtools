@@ -5,6 +5,180 @@ All notable changes to **NestJS DevTools** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-17
+
+This release is a correctness pass plus the first feature batch: a full
+audit of the parsers and edit builders found many code shapes that
+produced broken code or silently missed results — all fixed here, with a
+verification suite run against the compiled scanner code.
+
+### Added
+
+- **Diagnose · Route Conflicts.** Statically finds the route collisions
+  NestJS itself only warns about at runtime (v12's router added duplicate
+  warnings — this catches them before `F5`): exact duplicates (including
+  `:id` vs `:userId` at the same position — they match the same
+  requests), literal paths shadowed by param paths (`/users/me` vs
+  `/users/:id`), and `@All` handlers overlapping specific verbs
+  registered alongside them. Results carry a confidence (`certain`,
+  `heuristic` with a "why this might be wrong" note, `info`), appear as
+  Problems-panel warnings, and get a jumpable report grouped per conflict
+  with both handler locations. Conflicting routes get a ⚠️ marker in the
+  Routes tree and the view badge counts them. Shadowing is only claimed
+  when the two paths differ in exactly one segment (literal vs param) —
+  partially-overlapping pairs that can't actually swallow each other are
+  not flagged. Once you've run the command, the Problems entries refresh
+  automatically (debounced) as controller files change. Controlled by the
+  new `nestjs-devtools.diagnostics.routeConflicts` setting (on by
+  default).
+- **`setGlobalPrefix` awareness.** `app.setGlobalPrefix('api')` in
+  `main.ts`/`bootstrap.ts` is detected (commented-out calls don't count)
+  and every route in the Routes tree, Search All and the Method Searcher
+  now shows the path the app actually serves — `/api/v2/users/:id`, not
+  `/users`. The prefix cache updates on save, create and delete of the
+  entry file.
+- **NestJS version awareness.** The hub title shows the project's
+  `@nestjs/core` version (e.g. "🦁 NestJS DevTools · core v11.0.6"),
+  detected from package.json — falling back to a bounded scan of the
+  workspace's package.json files when the workspace root is a parent
+  folder. The hook for all future version-aware hints.
+- **Structured logging token.** `nestjs-devtools.logTemplate` accepts
+  `{object}`: the selected value is appended as an object argument
+  (`this.logger.log("msg", { userId })` — matching Nest 12's structured
+  logging story) instead of a bare one.
+- **Sidebar: route copy actions.** Right-click a route row → *Copy Route*
+  (`GET /api/v2/users/:id`), *Copy Full URL* (base URL + detected
+  `setGlobalPrefix` + `@Version` + path), or *Copy as cURL* (with a JSON
+  content-type header and empty body for non-GET verbs). Right-click a
+  controller row → *Copy All Routes*. The host comes from the new
+  `nestjs-devtools.routes.baseUrl` setting (defaults to the NestJS dev
+  default `http://localhost:3000`).
+- **Sidebar: register orphans from the tree.** Unregistered provider files
+  in the Modules tree carry a *Register in Module* right-click action —
+  the same nearest-module edit the Provider Health quick fix performs
+  (array + import), without opening the file first. Registered files show
+  their status in the row tooltip.
+- **Sidebar: module health badges.** Module rows show
+  `⚠ N issues` when their own area contains unregistered providers or
+  wrong-array registrations (a `@Controller` under `providers`, a service
+  under `controllers`) — the sidebar is now the first place DI problems
+  are visible.
+- **Sidebar: pinned Conflicts group.** The Routes tree shows a
+  `Conflicts (N)` section above the controllers when conflicts exist —
+  each row labelled with its kind and confidence, click to jump to the
+  handler.
+
+### Fixed — edits that could corrupt your code
+
+- **Injecting a provider into a multi-line constructor no longer produces
+  invalid code.** The constructor parameter scan read the wrong line when
+  the closing `)` sat on its own line, so a normal Prettier-formatted
+  constructor was treated as empty and the new parameter was inserted
+  without a comma.
+- **Logging inside `constructor() {}` no longer breaks the file.** The
+  insert position landed between the signature and the `{` instead of
+  inside the braces; the log now goes inside, with the closing brace moved
+  to its own line.
+- **The register-provider quick fix no longer corrupts an empty
+  `providers: []` / `controllers: []` array.** Inserting into `[]`
+  produced `[, Name]` — a JavaScript elision hole (an `undefined` slot)
+  that breaks NestJS DI at bootstrap. Empty arrays, single-line and
+  multi-line, now get a clean first item.
+- **Multi-line selections no longer break the log statement.** Selecting
+  an expression spanning lines embedded a raw newline inside the
+  double-quoted log message (a syntax error). The message now collapses
+  whitespace; the value argument keeps the raw selection.
+- **No duplicate `Logger` import / declaration.** Multi-line
+  `@nestjs/common` imports are now understood (the import is extended in
+  place, preserving formatting), `LoggerModule` is no longer mistaken for
+  `Logger`, and the auto-declaration scan no longer stops at the first
+  method's closing brace (it follows the class body to its real end,
+  indented like the class).
+- **`import type { X }`, `import D, { X }`, default and namespace imports
+  are recognized** when deciding whether an import must be added — no more
+  duplicate-import edits.
+- **New imports land after the import block**, however long the license
+  header above it is, and never above leading header comments.
+
+### Fixed — parsing correctness
+
+- **Regex literals no longer corrupt the code scanner.** The
+  string/comment stripper (used by log insertion, provider injection and
+  log removal) now also skips regex bodies — `s.replace(/}/g, "")` used
+  to leave a stray `}` that derailed bracket-depth tracking for the whole
+  file.
+- **Enclosing-class detection survives braces in strings and comments** —
+  the walk now runs over stripped text with a stack of open classes
+  (three drifted copies of the old raw-brace walk unified into one), and
+  also recognizes `@Injectable() export class Foo` and
+  `export default class` on a single line.
+- **The Provider Health index is harder to fool**: `providers: [...]`
+  arrays are located inside the `@Module` decorator only (a dynamic-module
+  `return { providers: [...] }` above the decorator hijacked the match),
+  `]` inside strings no longer truncates registration lists, and files
+  saved *during* the initial scan are re-read afterwards instead of
+  keeping stale content. Concurrent commands share one in-flight scan
+  instead of racing two.
+- **Route parsing**: a `@Controller(...)` in a comment no longer hijacks
+  the route prefix; `@Controller({ version: '1', path: 'users' })` keeps
+  its prefix regardless of key order; a `)` inside a decorator string
+  (`@Get(':id)')`) no longer truncates the decorator; routes on the same
+  line as their decorator (`@Get('x') async foo() {}`) are captured;
+  arrow-property handlers show their real name (`findAll`, not "async");
+  `@Version('2')` contributes a `/v2` segment; JSDoc between a decorator
+  and its handler no longer hides the route.
+- **Method Searcher lists `_`-prefixed methods** (`private _doWork()` was
+  silently dropped) and reads the file name correctly on Windows.
+
+### Fixed — UX
+
+- **Both tree filter boxes work on every use.** The filter input was
+  disposed when hidden but still re-shown afterwards, so the second use of
+  "Tree · Filter Module Files" / "Filter Routes" silently did nothing.
+- **Newly created controllers appear in the Routes tree immediately** —
+  previously they only showed up after a manual refresh or an unrelated
+  save.
+- **Injecting an already-injected provider is refused** with a message
+  instead of appending a duplicate parameter, and instance names handle
+  acronyms (`HTTPService` → `httpService`, not `hTTPService`).
+- **CodeLens counts match the sidebar tree** — both now count the module's
+  own files and its direct nested modules ("Current Module Files" shows
+  the same own-file set, as the changelog always promised).
+- **Same-named controllers** in different modules are disambiguated by
+  directory in the Routes tree.
+- **Nested-module breadcrumbs use the module file's name**, not the
+  directory name, when the two differ.
+- **A failed project detection retries** on the next call instead of
+  poisoning the status-bar button for the session, and the status-bar item
+  can no longer leak on failure.
+- **One bad `nestjs-devtools.exclude` entry can't take features down** —
+  every workspace scan runs through a crash-proof wrapper (warns once and
+  returns partial results instead of throwing), and entries containing
+  commas/braces are skipped with a one-time warning.
+- **Files in UTF-16 encodings decode correctly** (previously mojibake) and
+  lone-CR line endings are normalized.
+- Visual settings (`tree.showCounts`, `routes.colorVerbs`,
+  `swagger.showMissingDocs`, `customTypes`) now repaint the trees
+  instantly, as documented — previously only `exclude` did.
+- Custom file types are deduped among themselves, custom-type generation
+  emits a minimal class scaffold instead of a comment-only file, plural
+  suffixes are real (`strategies`, `repositories`, `entities`, `dtos`),
+  `node_modules` file events no longer trigger tree refreshes, and "Open
+  Route" on a deleted file shows a message instead of an unhandled error.
+
+### Changed
+
+- **`nestjs-devtools.exclude` bare folder names** (`dist`, `.nx`,
+  `coverage`) now exclude that folder at every directory level, matching
+  the documented monorepo behavior (they previously only matched the
+  workspace root).
+
+### Removed
+
+- The orphaned `packages/` build artifacts (never imported by the
+  extension) were deleted, and `packages/**` / `*.vsix` are now excluded
+  from packaging.
+
 ## [0.3.2] - 2026-11-07
 
 ### Performance

@@ -331,7 +331,9 @@ export async function generateNestFileCommand(
   const template = TEMPLATES[selectedType.suffix];
   const content = template
     ? template(kebabName)
-    : `// ${toPascalCase(kebabName)}${toPascalCase(selectedType.suffix)}\n`;
+    : // Custom types have no built-in template — emit a minimal typed
+      // scaffold instead of a comment-only file
+      `export class ${toPascalCase(kebabName)}${toPascalCase(selectedType.suffix)} {}\n`;
 
   await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, "utf-8"));
 

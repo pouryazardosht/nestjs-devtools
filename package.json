@@ -8,7 +8,7 @@
   "publisher": "pouryazardosht",
   "displayName": "NestJS DevTools",
   "description": "Static NestJS intelligence in VS Code — navigate modules & routes, inject providers, catch DI mistakes before you run, clean up logs, generate files. Zero setup.",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "engines": {
     "vscode": "^1.86.0"
   },
@@ -29,7 +29,7 @@
         "nestjs-devtools.logTemplate": {
           "type": "string",
           "default": "{emoji} {class} ~ {variable}",
-          "markdownDescription": "Message template for inserted log statements. Placeholders: `{emoji}` (per-method emoji), `{class}` (enclosing class name), `{variable}` (selected text). Remove `{emoji}` to disable emojis entirely."
+          "markdownDescription": "Message template for inserted log statements. Placeholders: `{emoji}` (per-method emoji), `{class}` (enclosing class name), `{variable}` (selected text), `{object}` (append the value as an object argument — `…, { variable }` — instead of a bare one; removed from the message). Remove `{emoji}` to disable emojis entirely."
         },
         "nestjs-devtools.exclude": {
           "type": "array",
@@ -54,10 +54,20 @@
           "default": true,
           "description": "Color-code HTTP verb icons (GET blue, POST green, PUT orange, PATCH yellow, DELETE red)."
         },
+        "nestjs-devtools.routes.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL used by **Tree · Copy Full URL** and **Tree · Copy as cURL** in the Routes tree — combined with the detected `setGlobalPrefix` and `@Version`. Defaults to `http://localhost:3000` (the NestJS development default) when empty."
+        },
         "nestjs-devtools.swagger.showMissingDocs": {
           "type": "boolean",
           "default": true,
           "description": "Flag routes that lack an @ApiOperation summary with a 'no docs' marker."
+        },
+        "nestjs-devtools.diagnostics.routeConflicts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect duplicate, shadowed and overlapping routes (statically — before running the app). Adds warnings to the Routes tree and powers 'Diagnose · Route Conflicts'."
         },
         "nestjs-devtools.logIncludeValue": {
           "type": "boolean",
@@ -178,6 +188,36 @@
           "command": "nestjs-log-helper.generateNestFile",
           "when": "view == nestjsModuleTree && viewItem == nestModule",
           "group": "nestjsDevtools@1"
+        },
+        {
+          "command": "nestjs-log-helper.registerInModule",
+          "when": "view == nestjsModuleTree && viewItem =~ /nestOrphan/",
+          "group": "nestjsDevtools@0"
+        },
+        {
+          "command": "nestjs-log-helper.findProviderUsages",
+          "when": "view == nestjsModuleTree && viewItem =~ /nestFile/",
+          "group": "9_copy@2"
+        },
+        {
+          "command": "nestjs-log-helper.copyRoute",
+          "when": "view == nestjsRoutesTree && viewItem == nestRoute",
+          "group": "9_copy@1"
+        },
+        {
+          "command": "nestjs-log-helper.copyRouteUrl",
+          "when": "view == nestjsRoutesTree && viewItem == nestRoute",
+          "group": "9_copy@2"
+        },
+        {
+          "command": "nestjs-log-helper.copyRouteCurl",
+          "when": "view == nestjsRoutesTree && viewItem == nestRoute",
+          "group": "9_copy@3"
+        },
+        {
+          "command": "nestjs-log-helper.copyControllerRoutes",
+          "when": "view == nestjsRoutesTree && viewItem == nestController",
+          "group": "9_copy@1"
         }
       ],
       "editor/context": [
@@ -273,6 +313,9 @@
         },
         {
           "command": "nestjs-log-helper.apiDocsCoverage"
+        },
+        {
+          "command": "nestjs-log-helper.routeConflicts"
         },
         {
           "command": "nestjs-log-helper.findProviderUsages",
@@ -410,12 +453,48 @@
         "category": "NestJS Devtools",
         "icon": "$(type-hierarchy)"
       },
-      {
-        "command": "nestjs-log-helper.apiDocsCoverage",
-        "title": "Diagnose · API Docs Coverage",
-        "category": "NestJS Devtools",
-        "icon": "$(book)"
-      },
+        {
+          "command": "nestjs-log-helper.apiDocsCoverage",
+          "title": "Diagnose · API Docs Coverage",
+          "category": "NestJS Devtools",
+          "icon": "$(book)"
+        },
+        {
+          "command": "nestjs-log-helper.routeConflicts",
+          "title": "Diagnose · Route Conflicts",
+          "category": "NestJS Devtools",
+          "icon": "$(mirror)"
+        },
+        {
+          "command": "nestjs-log-helper.copyRoute",
+          "title": "Tree · Copy Route",
+          "category": "NestJS Devtools",
+          "icon": "$(copy)"
+        },
+        {
+          "command": "nestjs-log-helper.copyRouteUrl",
+          "title": "Tree · Copy Full URL",
+          "category": "NestJS Devtools",
+          "icon": "$(globe)"
+        },
+        {
+          "command": "nestjs-log-helper.copyRouteCurl",
+          "title": "Tree · Copy as cURL",
+          "category": "NestJS Devtools",
+          "icon": "$(terminal)"
+        },
+        {
+          "command": "nestjs-log-helper.copyControllerRoutes",
+          "title": "Tree · Copy All Routes",
+          "category": "NestJS Devtools",
+          "icon": "$(copy)"
+        },
+        {
+          "command": "nestjs-log-helper.registerInModule",
+          "title": "Register in Module",
+          "category": "NestJS Devtools",
+          "icon": "$(add)"
+        },
       {
         "command": "nestjs-log-helper.hub",
         "title": "Open NestJS DevTools Hub",

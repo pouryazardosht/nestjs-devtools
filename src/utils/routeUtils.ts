@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { showMissingDocs, showVerbColors } from "./config";
+import { stripCode, stripComments } from "./insertionPoint";
 
 export const HTTP_DECORATORS = new Set([
   "Get",
@@ -63,14 +64,45 @@ export function missingDocsFlag(): string {
  * Extracts the @Controller route prefix, handling all common forms:
  *   @Controller('users')
  *   @Controller('users', JwtAuthGuard)   — extra decorator args
- *   @Controller({ path: 'users' })       — options-object form
+ *   @Controller({ path: 'users' })       — options object, ANY key order
+ *   @Controller({ version: '1', path: 'users' })
  *   @Controller() / @Controller          — no prefix
+ *
+ * Runs on string/comment-stripped text, so a `@Controller(...)` mentioned
+ * in a comment or string above the real decorator can't hijack the
+ * prefix (the old whole-text first-match did exactly that).
  */
 export function getControllerPrefix(text: string): string {
-  const strMatch = text.match(/@Controller\s*\(\s*['"`]([^'"`]*)['"`]/);
-  const objMatch = text.match(
-    /@Controller\s*\(\s*\{\s*path\s*:\s*['"`]([^'"`]*)['"`]/,
-  );
+  // Comments-only stripping: string literals must SURVIVE (the prefix is
+  // one), while a `@Controller(...)` inside a comment must not hijack it
+  const state = { inStr: null as string | null, inBlock: false };
+  const stripped = text
+    .split("\n")
+    .map((l) => stripComments(l, state))
+    .join("\n");
+
+  const start = stripped.search(/@Controller\s*\(/);
+  if (start === -1) return "";
+  const openParen = stripped.indexOf("(", start);
+
+  // Balance the argument list (may span lines)
+  let depth = 0;
+  let end = -1;
+  for (let i = openParen; i < stripped.length; i++) {
+    if (stripped[i] === "(") depth++;
+    else if (stripped[i] === ")") {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end === -1) return "";
+  const args = stripped.slice(openParen + 1, end);
+
+  const strMatch = args.match(/^\s*['"`]([^'"`]*)['"`]/);
+  const objMatch = args.match(/\bpath\s*:\s*['"`]([^'"`]*)['"`]/);
   const raw = strMatch?.[1] ?? objMatch?.[1];
   if (raw === undefined) return "";
   const prefix = raw.replace(/^\/+|\/+$/g, "");
@@ -86,6 +118,16 @@ export function isBalanced(str: string): boolean {
   return depth <= 0;
 }
 
+/**
+ * Prepends the app's global prefix (`setGlobalPrefix('api')`) to a route
+ * path. `/` stays a bare prefix (`/api`, not `/api/`).
+ */
+export function withGlobalPrefix(prefix: string, routePath: string): string {
+  if (!prefix) return routePath;
+  if (routePath === "/" || routePath === "") return prefix;
+  return prefix + routePath;
+}
+
 // ─── Route extraction ────────────────────────────────────────────────────────
 
 export interface RouteInfo {
@@ -97,6 +139,8 @@ export interface RouteInfo {
   uri: vscode.Uri;
   /** @ApiOperation summary, if present. */
   summary?: string;
+  /** Method-level @Version value (e.g. "2" for @Version('2')), if any. */
+  version?: string;
 }
 
 /**
@@ -111,116 +155,191 @@ export function getApiOperationSummary(
   return match?.[1];
 }
 
+/** Words that can follow an HTTP decorator without being its handler. */
+const SKIP_METHOD_NAMES = new Set([
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "constructor",
+  "class",
+  "function",
+  "return",
+]);
+
 /**
  * Extracts HTTP routes from a controller file's text.
  * Pure text parsing — no documents are opened by the caller's caller; the
  * caller is responsible for caching results per file.
+ *
+ * Robustness notes over the old scanner:
+ *  - decorator balancing runs over string/comment-stripped text, so a
+ *    `)` inside a decorator string (`@Get(':id)')`) no longer ends the
+ *    accumulation early;
+ *  - a member on the SAME line as its decorator (`@Get('x') async foo() {}`)
+ *    is now captured — the old scanner consumed the whole line as a
+ *    decorator and the route was silently dropped;
+ *  - the handler name regex is anchored and understands modifiers,
+ *    `get`/`set`, generics (`findAll<T>(…)`) and arrow properties
+ *    (`findAll = async (…)` — previously named "async");
+ *  - `@Version('1')` contributes a `/v1` segment (NestJS URI versioning).
  */
 export function extractRoutes(uri: vscode.Uri, text: string): RouteInfo[] {
   const lines = text.split("\n");
+  // One strip pass with threaded state — bracket balancing and decorator
+  // detection see code only; RAW lines are still used to extract the
+  // string literals (route paths, summaries) from inside decorators
+  const stripState = { inStr: null as string | null, inBlock: false };
+  const strippedLines = lines.map((l) => stripCode(l, stripState));
   const controllerPrefix = getControllerPrefix(text);
   const routes: RouteInfo[] = [];
 
   let pendingDecorators: { name: string; full: string }[] = [];
+  /** Same-line tail after a decorator (`@Get('x') async foo() {}`). */
+  let carryTail: string | undefined;
   let i = 0;
 
   while (i < lines.length) {
-    const trimmed = lines[i].trim();
+    const rawTrimmed = lines[i].trim();
+    const carryLine = carryTail !== undefined;
+    const trimmed = carryTail ?? strippedLines[i].trim();
+    carryTail = undefined;
 
-    if (
-      trimmed === "" ||
-      trimmed.startsWith("//") ||
-      trimmed.startsWith("*") ||
-      trimmed.startsWith("/*")
-    ) {
-      i++;
-      continue;
+    if (trimmed === "") {
+      if (!carryLine) i++;
+      continue; // blank, comment-only, or string-only line
     }
 
-    const decoratorMatch = trimmed.match(/^@([\w]+)(\(.*)?/);
-    if (decoratorMatch) {
-      const name = decoratorMatch[1];
-      let full = trimmed;
-      // Handle multi-line decorator args — and skip the consumed
-      // continuation lines so they don't get re-processed (which would
-      // clear pendingDecorators and lose this decorator).
-      let lastLine = i;
-      if (decoratorMatch[2] && !isBalanced(decoratorMatch[2])) {
-        let j = i + 1;
-        while (j < lines.length) {
-          full += " " + lines[j].trim();
-          lastLine = j;
-          if (isBalanced(full.slice(full.indexOf("(")))) break;
-          j++;
+    if (!carryLine) {
+      const decoratorMatch = trimmed.match(/^@([\w]+)\s*(\(.*)?$/);
+      if (decoratorMatch) {
+        const name = decoratorMatch[1];
+        let rawFull = rawTrimmed;
+        let strippedFull = trimmed;
+        let lastLine = i;
+        // Handle multi-line decorator args — skip the consumed
+        // continuation lines so they don't get re-processed
+        const parenIdx = strippedFull.indexOf("(");
+        if (parenIdx !== -1 && !isBalanced(strippedFull.slice(parenIdx))) {
+          let j = i + 1;
+          while (j < lines.length) {
+            rawFull += " " + lines[j].trim();
+            strippedFull += " " + strippedLines[j].trim();
+            lastLine = j;
+            if (isBalanced(strippedFull.slice(strippedFull.indexOf("(")))) {
+              break;
+            }
+            j++;
+          }
         }
+        pendingDecorators.push({ name, full: rawFull });
+
+        // Tail after the decorator's closing paren (stripped coords)
+        let remainder = "";
+        const from = strippedFull.indexOf("(");
+        if (from !== -1) {
+          let depth = 0;
+          for (let c = from; c < strippedFull.length; c++) {
+            if (strippedFull[c] === "(") depth++;
+            else if (strippedFull[c] === ")") {
+              depth--;
+              if (depth === 0) {
+                remainder = strippedFull.slice(c + 1).trim();
+                break;
+              }
+            }
+          }
+        }
+
+        if (remainder && !/^[{};]/.test(remainder)) {
+          // A member follows on the same line — process its tail now,
+          // attributed to this decorator's line
+          carryTail = remainder;
+          i = lastLine;
+        } else {
+          i = lastLine + 1;
+        }
+        continue;
       }
-      pendingDecorators.push({ name, full });
-      i = lastLine + 1;
-      continue;
     }
 
-    // Check if any pending decorator is an HTTP decorator
+    // A pending HTTP decorator turns the current line into a route
     const httpDecorator = pendingDecorators.find((d) =>
       HTTP_DECORATORS.has(d.name),
     );
 
     if (httpDecorator) {
-      // Look ahead to get the method name
-      const lookahead = lines
-        .slice(i, Math.min(i + 6, lines.length))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
+      // Lookahead: current line (or carried tail) plus the next few
+      // non-comment lines, for signatures that span lines
+      const window: string[] = [trimmed];
+      for (
+        let j = i + 1;
+        j < Math.min(i + 6, lines.length) && window.length < 6;
+        j++
+      ) {
+        const s = strippedLines[j].trim();
+        if (s === "" || s.startsWith("*") || s.startsWith("/*")) continue;
+        window.push(s);
+      }
+      const lookahead = window.join(" ").replace(/\s+/g, " ").trim();
 
-      const methodMatch = lookahead.match(
-        /(?:public|private|protected)?\s*(?:async\s+)?([\w]+)\s*\(/,
+      // Arrow-property handler first: `findAll = async (req, res) =>`
+      const arrowMatch = lookahead.match(
+        /^(?:(?:public|private|protected)\s+)?(?:async\s+)?(?:readonly\s+)?([\w$]+)\s*=\s*(?:async\s*)?\(/,
       );
-
-      if (methodMatch) {
-        const methodName = methodMatch[1];
-        const skipKeywords = [
-          "if",
-          "for",
-          "while",
-          "switch",
-          "catch",
-          "constructor",
-          "class",
-          "function",
-        ];
-
-        if (!skipKeywords.includes(methodName)) {
-          const httpMethod = httpDecorator.name.toUpperCase();
-
-          // Extract route path from decorator
-          const pathMatch = httpDecorator.full.match(
-            /@(?:\w+)\s*\(\s*['"`]([^'"`]*)['"`]/,
+      const methodMatch = arrowMatch
+        ? undefined
+        : lookahead.match(
+            /^(?:(?:public|private|protected)\s+)?(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?([\w$]+)\s*[(<]/,
           );
+      const nameCandidate = arrowMatch?.[1] ?? methodMatch?.[1];
 
-          let routePath = "";
-          if (pathMatch) {
-            routePath = pathMatch[1].replace(/^\//, "");
+      if (nameCandidate && !SKIP_METHOD_NAMES.has(nameCandidate)) {
+        const httpMethod = httpDecorator.name.toUpperCase();
+
+        // Extract route path from the decorator
+        const pathMatch = httpDecorator.full.match(
+          /@(?:\w+)\s*\(\s*['"`]([^'"`]*)['"`]/,
+        );
+        const routePath = pathMatch
+          ? pathMatch[1].replace(/^\//, "")
+          : "";
+
+        // @Version('1') → /v1 (NestJS default URI version prefix)
+        const versionDeco = pendingDecorators.find(
+          (d) => d.name === "Version",
+        );
+        let versionPrefix = "";
+        let version: string | undefined;
+        if (versionDeco) {
+          const v = versionDeco.full.match(
+            /@Version\s*\(\s*['"]([^'"]+)['"]/,
+          )?.[1];
+          if (v) {
+            version = v;
+            versionPrefix = `/${v.toLowerCase().startsWith("v") ? v : `v${v}`}`;
           }
-
-          const fullPath = routePath
-            ? `${controllerPrefix}/${routePath}`
-            : controllerPrefix || "/";
-
-          // @ApiOperation may sit before or after the HTTP decorator
-          const apiOp = pendingDecorators.find(
-            (d) => d.name === "ApiOperation",
-          );
-
-          routes.push({
-            httpMethod,
-            fullPath,
-            methodName,
-            line: i,
-            controllerFile: uri.path.split("/").pop() ?? "",
-            uri,
-            summary: apiOp ? getApiOperationSummary(apiOp.full) : undefined,
-          });
         }
+
+        const base = versionPrefix + controllerPrefix;
+        const fullPath = routePath ? `${base}/${routePath}` : base || "/";
+
+        // @ApiOperation may sit before or after the HTTP decorator
+        const apiOp = pendingDecorators.find(
+          (d) => d.name === "ApiOperation",
+        );
+
+        routes.push({
+          httpMethod,
+          fullPath,
+          methodName: nameCandidate,
+          line: i,
+          controllerFile: uri.path.split("/").pop() ?? "",
+          uri,
+          summary: apiOp ? getApiOperationSummary(apiOp.full) : undefined,
+          version,
+        });
       }
 
       pendingDecorators = [];
@@ -228,13 +347,8 @@ export function extractRoutes(uri: vscode.Uri, text: string): RouteInfo[] {
       continue;
     }
 
-    // Clear decorators if line doesn't look like a method
-    if (
-      trimmed !== "{" &&
-      trimmed !== "}" &&
-      !trimmed.startsWith("//") &&
-      !trimmed.startsWith("*")
-    ) {
+    // Clear decorators if this line isn't a member continuation
+    if (trimmed !== "{" && trimmed !== "}") {
       pendingDecorators = [];
     }
 

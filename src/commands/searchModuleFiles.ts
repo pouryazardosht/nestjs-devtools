@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { getTargetEditor } from "../utils/targetEditor";
-import { getEffectiveNestTypes, NestType } from "../constants";
+import { matchNestType, getEffectiveNestTypes } from "../constants";
 import {
   brandedTitle,
   buildGroupedItems,
@@ -9,29 +9,13 @@ import {
   showQuickPickWithShortcuts,
 } from "../utils/quickPickHelpers";
 import { getExcludeGlob } from "../utils/config";
-
-function getPossibleSuffixes(nestType: NestType): string[] {
-  const pluralTypes = [
-    "guard",
-    "gateway",
-    "interceptor",
-    "pipe",
-    "filter",
-    "decorator",
-    "resolver",
-    "middleware",
-    "strategy",
-  ];
-  if (pluralTypes.includes(nestType.suffix)) {
-    return [nestType.suffix, nestType.suffix + "s"];
-  }
-  return [nestType.suffix];
-}
+import { findFilesSafe } from "../utils/scan";
+import { findDirectNestedModules, isInsideAnyDir } from "../utils/moduleDirs";
 
 export async function findAllModuleFiles(
   moduleRoot: string,
 ): Promise<ModuleFile[]> {
-  const allTsFiles = await vscode.workspace.findFiles(
+  const allTsFiles = await findFilesSafe(
     new vscode.RelativePattern(moduleRoot, "**/*.ts"),
     getExcludeGlob(),
   );
@@ -44,15 +28,7 @@ export async function findAllModuleFiles(
   for (const file of allTsFiles) {
     const relativePath = vscode.workspace.asRelativePath(file);
     const fileName = path.basename(file.fsPath);
-
-    let matchedType: NestType | undefined;
-    for (const nestType of nestTypes) {
-      const suffixes = getPossibleSuffixes(nestType);
-      if (suffixes.some((suffix) => fileName.endsWith(`.${suffix}.ts`))) {
-        matchedType = nestType;
-        break;
-      }
-    }
+    const matchedType = matchNestType(fileName, nestTypes);
 
     if (matchedType) {
       results.push({
@@ -95,7 +71,7 @@ export async function searchModuleFilesCommand() {
     let dir = currentDir;
     while (dir.startsWith(workspaceRoot)) {
       const pattern = new vscode.RelativePattern(dir, "*.module.ts");
-      const found = await vscode.workspace.findFiles(pattern, null, 1);
+      const found = await findFilesSafe(pattern, null, 1);
       if (found.length > 0) {
         moduleRoot = dir;
         break;
@@ -115,10 +91,26 @@ export async function searchModuleFilesCommand() {
     return;
   }
 
-  const fileItems = buildGroupedItems(allFiles);
+  // Show only the module's OWN files — files inside nested modules belong
+  // to the nested module (matches the tree and the CodeLens counts; the
+  // 0.1.2 changelog promised this but only Browse Modules honored it)
+  const nestedModuleDirs = await findDirectNestedModules(moduleRoot);
+  const ownFiles = allFiles.filter((file) => {
+    const fileDir = path.dirname(file.uri.fsPath);
+    return !isInsideAnyDir(fileDir, nestedModuleDirs);
+  });
+
+  if (ownFiles.length === 0) {
+    vscode.window.showInformationMessage(
+      "📁 No TypeScript files found in this module.",
+    );
+    return;
+  }
+
+  const fileItems = buildGroupedItems(ownFiles);
 
   // Header shows which module's files are being browsed
-  const moduleFile = await vscode.workspace.findFiles(
+  const moduleFile = await findFilesSafe(
     new vscode.RelativePattern(moduleRoot, "*.module.ts"),
     null,
     1,

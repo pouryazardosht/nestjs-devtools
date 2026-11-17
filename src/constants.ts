@@ -117,39 +117,54 @@ export const NEST_TYPES: NestType[] = [
 /**
  * Returns NEST_TYPES merged with any custom types the user has
  * configured under nestjs-devtools.customTypes in their settings.
- * Custom types with the same suffix as a built-in type are ignored
- * to prevent duplicate matches.
+ * Custom types with the same suffix as a built-in type — or as another
+ * custom type — are ignored to prevent duplicate matches.
  */
 export function getEffectiveNestTypes(): NestType[] {
   const config = vscode.workspace.getConfiguration("nestjs-devtools");
   const customTypes = config.get<NestType[]>("customTypes") ?? [];
 
-  const builtInSuffixes = new Set(NEST_TYPES.map((t) => t.suffix));
+  const seen = new Set(NEST_TYPES.map((t) => t.suffix));
 
   const validCustomTypes = customTypes.filter((t) => {
     if (!t.suffix || !t.typeLabel || !t.shortcut || !t.category) {
       return false; // skip malformed entries
     }
-    if (builtInSuffixes.has(t.suffix)) {
-      return false; // don't override built-ins
+    if (seen.has(t.suffix)) {
+      return false; // don't override built-ins or earlier custom types
     }
+    seen.add(t.suffix);
     return true;
   });
 
   return [...NEST_TYPES, ...validCustomTypes];
 }
 
-const PLURAL_SUFFIXES = new Set([
-  "guard",
-  "gateway",
-  "interceptor",
-  "pipe",
-  "filter",
-  "decorator",
-  "resolver",
-  "middleware",
-  "strategy",
-]);
+/**
+ * Real plural for each suffix — the old naive `suffix + "s"` produced
+ * "strategys"/"repositorys" and missed the common `entities`/`dtos`.
+ * Unknown (custom) suffixes fall back to the naive form.
+ */
+const PLURAL_SUFFIXES: Record<string, string> = {
+  service: "services",
+  controller: "controllers",
+  module: "modules",
+  guard: "guards",
+  gateway: "gateways",
+  interceptor: "interceptors",
+  pipe: "pipes",
+  filter: "filters",
+  resolver: "resolvers",
+  decorator: "decorators",
+  entity: "entities",
+  dto: "dtos",
+  enum: "enums",
+  interface: "interfaces",
+  repository: "repositories",
+  middleware: "middleware",
+  strategy: "strategies",
+  spec: "specs",
+};
 
 /**
  * Matches a file name against the Nest types (singular or plural suffix,
@@ -160,9 +175,9 @@ export function matchNestType(
   nestTypes: NestType[],
 ): NestType | undefined {
   for (const t of nestTypes) {
-    const suffixes = PLURAL_SUFFIXES.has(t.suffix)
-      ? [t.suffix, t.suffix + "s"]
-      : [t.suffix];
+    const plural = PLURAL_SUFFIXES[t.suffix] ?? `${t.suffix}s`;
+    const suffixes =
+      plural === t.suffix ? [t.suffix] : [t.suffix, plural];
     if (suffixes.some((s) => fileName.endsWith(`.${s}.ts`))) {
       return t;
     }

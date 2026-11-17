@@ -14,10 +14,13 @@ import {
   httpMethodIcon,
   missingDocsFlag,
   RouteInfo,
+  withGlobalPrefix,
 } from "../utils/routeUtils";
+import { getGlobalPrefix } from "../utils/globalPrefix";
 import { getEffectiveNestTypes, matchNestType } from "../constants";
 import { getExcludeGlob } from "../utils/config";
 import {
+  findFilesSafe,
   mapWithConcurrency,
   readTextFile,
   SCAN_CONCURRENCY,
@@ -26,21 +29,30 @@ import {
 // ─── Route collection (shared parser lives in utils/routeUtils) ──────────────
 
 export async function collectAllRoutes(): Promise<RouteInfo[]> {
-  const controllerFiles = await vscode.workspace.findFiles(
+  const controllerFiles = await findFilesSafe(
     "**/*.controller.ts",
     getExcludeGlob(),
   );
 
-  const perFile = await mapWithConcurrency(
-    controllerFiles,
-    SCAN_CONCURRENCY,
-    async (uri): Promise<RouteInfo[]> => {
-      const text = await readTextFile(uri);
-      return text === undefined ? [] : extractRoutes(uri, text);
-    },
-  );
+  const [perFile, prefix] = await Promise.all([
+    mapWithConcurrency(
+      controllerFiles,
+      SCAN_CONCURRENCY,
+      async (uri): Promise<RouteInfo[]> => {
+        const text = await readTextFile(uri);
+        return text === undefined ? [] : extractRoutes(uri, text);
+      },
+    ),
+    getGlobalPrefix(),
+  ]);
 
-  return perFile.flat();
+  // Show the paths the app actually serves — setGlobalPrefix('api') makes
+  // `/users` live at `/api/users`, and conflict detection must compare
+  // those real paths
+  return perFile.flat().map((r) => ({
+    ...r,
+    fullPath: withGlobalPrefix(prefix, r.fullPath),
+  }));
 }
 
 // ─── File collection (existing logic) ────────────────────────────────────────
@@ -58,8 +70,8 @@ interface AggregatedFile extends ModuleFile {
  */
 async function collectAllFiles(): Promise<AggregatedFile[]> {
   const [moduleFiles, allTsFiles] = await Promise.all([
-    vscode.workspace.findFiles("**/*.module.ts", getExcludeGlob()),
-    vscode.workspace.findFiles("**/*.ts", getExcludeGlob()),
+    findFilesSafe("**/*.module.ts", getExcludeGlob()),
+    findFilesSafe("**/*.ts", getExcludeGlob()),
   ]);
 
   if (moduleFiles.length === 0) {
@@ -67,11 +79,15 @@ async function collectAllFiles(): Promise<AggregatedFile[]> {
   }
 
   const moduleDirs = new Map<string, string>();
-  for (const moduleFile of moduleFiles) {
-    moduleDirs.set(
-      path.dirname(moduleFile.fsPath),
-      path.basename(moduleFile.fsPath, ".module.ts"),
-    );
+  for (const moduleFile of [...moduleFiles].sort((a, b) =>
+    a.fsPath.localeCompare(b.fsPath),
+  )) {
+    const dir = path.dirname(moduleFile.fsPath);
+    // Two modules in the SAME directory would otherwise attribute files to
+    // whichever the scan returned last — keep the first (deterministic)
+    if (!moduleDirs.has(dir)) {
+      moduleDirs.set(dir, path.basename(moduleFile.fsPath, ".module.ts"));
+    }
   }
 
   const nestTypes = getEffectiveNestTypes();

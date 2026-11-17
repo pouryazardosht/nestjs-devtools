@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { brandIcon } from "../utils/quickPickHelpers";
 import { brandedTitle } from "../utils/quickPickHelpers";
+import { getNestVersion } from "../utils/nestProject";
 
 interface HubItem extends vscode.QuickPickItem {
   command?: string;
@@ -16,6 +17,8 @@ function key(chordSecond: string): string {
 /**
  * "NestJS DevTools hub" — every feature in one QuickPick, grouped by type
  * with icons and shortcut hints. Opened from the status bar lion button.
+ * The detected NestJS version rides in the TITLE so it's always visible
+ * (a bottom separator was easy to scroll past and miss).
  */
 export async function showHubCommand(): Promise<void> {
   const items: HubItem[] = [];
@@ -56,6 +59,7 @@ export async function showHubCommand(): Promise<void> {
 
   add("Diagnose", [
     ["Provider Health", "$(checklist)", "nestjs-log-helper.checkProviderHealth", ""],
+    ["Route Conflicts", "$(mirror)", "nestjs-log-helper.routeConflicts", ""],
     ["API Docs Coverage", "$(book)", "nestjs-log-helper.apiDocsCoverage", ""],
   ]);
 
@@ -63,8 +67,14 @@ export async function showHubCommand(): Promise<void> {
     ["Remove Logs in This File", "$(trash)", "nestjs-log-helper.removeLogs", ""],
   ]);
 
+  const nestVersion = await getNestVersion();
+
   const picked = await vscode.window.showQuickPick(items, {
-    title: brandedTitle("NestJS DevTools"),
+    title: brandedTitle(
+      nestVersion
+        ? `NestJS DevTools · core v${nestVersion}`
+        : "NestJS DevTools",
+    ),
     placeHolder: "Pick a command — or type to filter by name",
     matchOnDescription: true,
   });

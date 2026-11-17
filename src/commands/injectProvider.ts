@@ -12,9 +12,20 @@ import {
 } from "../utils/imports";
 import { brandedTitle, iconForFileName } from "../utils/quickPickHelpers";
 import { getTargetEditor } from "../utils/targetEditor";
+import { stripCode } from "../utils/insertionPoint";
 
-function toCamelCase(className: string): string {
-  return className.charAt(0).toLowerCase() + className.slice(1);
+/**
+ * Instance name for a class — lowercases the leading ACRONYM run instead
+ * of just the first letter, so `HTTPService` becomes `httpService`
+ * (not `hTTPService`) while `UsersService` stays `usersService`.
+ */
+function toInstanceName(className: string): string {
+  let run = 0;
+  while (run < className.length && /[A-Z]/.test(className[run])) run++;
+  if (run >= 2 && run < className.length) {
+    run--; // keep the last capital with the lowercase tail: HTTP|Service
+  }
+  return className.slice(0, run).toLowerCase() + className.slice(run);
 }
 
 /**
@@ -97,8 +108,25 @@ export async function injectProviderCommand(): Promise<void> {
   if (!picked) return;
 
   const { className, uri } = picked.provider;
-  const instanceName = toCamelCase(className);
+  const instanceName = toInstanceName(className);
   const param = `private readonly ${instanceName}: ${className}`;
+
+  // Refuse a duplicate injection — the old command happily appended the
+  // same provider twice
+  const ctorRegion = document.getText(
+    new vscode.Range(ctor.openParen, ctor.closeParen),
+  );
+  const ctorStripState = { inStr: null as string | null, inBlock: false };
+  const ctorStripped = ctorRegion
+    .split("\n")
+    .map((l) => stripCode(l, ctorStripState))
+    .join("\n");
+  if (new RegExp(`\\b${className.replace(/\$/g, "\\$")}\\b`).test(ctorStripped)) {
+    vscode.window.showInformationMessage(
+      `ℹ️ ${className} is already injected in this constructor`,
+    );
+    return;
+  }
 
   // ── Step 2: build edits (param + import) ───────────────────────────────────
   const importEdit = hasImport(document, className)

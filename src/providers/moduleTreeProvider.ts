@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { findAllModuleFiles } from "../commands/searchModuleFiles";
-import { getEffectiveNestTypes, NestType } from "../constants";
+import { matchNestType, getEffectiveNestTypes } from "../constants";
 import { showCounts } from "../utils/config";
 import {
   brandIcon,
@@ -9,42 +9,20 @@ import {
   ModuleFile,
 } from "../utils/quickPickHelpers";
 import { getExcludeGlob } from "../utils/config";
-
-/** Direct nested-module entry (same shape as quickPickHelpers' NestedModuleInfo minus fileCount). */
-interface NestedModuleDir {
-  uri: vscode.Uri;
-  dir: string;
-  base: string;
-}
+import { findFilesSafe } from "../utils/scan";
+import {
+  findDirectNestedModules,
+  isInsideAnyDir,
+  NestedModuleDir,
+} from "../utils/moduleDirs";
+import {
+  findProviderClasses,
+  getRegistrationEntries,
+  getRegistrationIndex,
+  ProviderClassInfo,
+} from "../utils/nestIndex";
 
 type TreeItemType = "module" | "file";
-
-const PLURAL_TYPES = new Set([
-  "guard",
-  "gateway",
-  "interceptor",
-  "pipe",
-  "filter",
-  "decorator",
-  "resolver",
-  "middleware",
-  "strategy",
-]);
-
-function matchNestType(
-  fileName: string,
-  nestTypes: NestType[],
-): NestType | undefined {
-  for (const t of nestTypes) {
-    const suffixes = PLURAL_TYPES.has(t.suffix)
-      ? [t.suffix, t.suffix + "s"]
-      : [t.suffix];
-    if (suffixes.some((s) => fileName.endsWith(`.${s}.ts`))) {
-      return t;
-    }
-  }
-  return undefined;
-}
 
 export class ModuleTreeItem extends vscode.TreeItem {
   constructor(
@@ -89,10 +67,15 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
   /** Cached root modules — avoids a workspace scan on every keystroke. */
   private rootCache: ModuleTreeItem[] | undefined;
 
-  /** Cached per-module contents (files + nested modules) for badges & children. */
+  /** Cached per-module contents (files + nested modules + DI health) for badges & children. */
   private contentsCache = new Map<
     string,
-    { ownFiles: ModuleFile[]; nestedModuleDirs: NestedModuleDir[] }
+    {
+      ownFiles: ModuleFile[];
+      nestedModuleDirs: NestedModuleDir[];
+      /** Unregistered providers + wrong-array registrations in this module's own area. */
+      issues: number;
+    }
   >();
 
   /**
@@ -140,10 +123,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
   private async getRootModules(): Promise<ModuleTreeItem[]> {
     if (this.rootCache) return this.rootCache;
 
-    const moduleFiles = await vscode.workspace.findFiles(
-      "**/*.module.ts",
-      getExcludeGlob(),
-    );
+    const moduleFiles = await findFilesSafe("**/*.module.ts", getExcludeGlob());
     if (!moduleFiles.length) {
       this.rootCache = [];
       return this.rootCache;
@@ -189,13 +169,17 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
       await Promise.all(
         this.rootCache.map(async (item) => {
           if (!item.moduleDir) return;
-          const { ownFiles, nestedModuleDirs } =
+          const { ownFiles, nestedModuleDirs, issues } =
             await this.computeModuleContents(item.moduleDir);
-          item.description = `${ownFiles.length} file${ownFiles.length === 1 ? "" : "s"}${
+          item.description = [
+            `${ownFiles.length} file${ownFiles.length === 1 ? "" : "s"}`,
             nestedModuleDirs.length > 0
-              ? ` · ${nestedModuleDirs.length} nested`
-              : ""
-          }`;
+              ? `${nestedModuleDirs.length} nested`
+              : undefined,
+            issues > 0 ? `$(warning) ${issues} issue${issues === 1 ? "" : "s"}` : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ");
         }),
       );
 
@@ -210,41 +194,19 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
     return this.rootCache;
   }
 
-  /** Cached parse of a module's own files and direct nested modules. */
+  /** Cached parse of a module's own files, direct nested modules and DI health. */
   private async computeModuleContents(moduleDir: string): Promise<{
     ownFiles: ModuleFile[];
     nestedModuleDirs: NestedModuleDir[];
+    issues: number;
   }> {
     const cached = this.contentsCache.get(moduleDir);
     if (cached) return cached;
 
-    const [allFiles, nestedModuleFiles] = await Promise.all([
+    const [allFiles, nestedModuleDirs] = await Promise.all([
       findAllModuleFiles(moduleDir),
-      vscode.workspace.findFiles(
-        new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-        getExcludeGlob(),
-      ),
+      findDirectNestedModules(moduleDir),
     ]);
-
-    // Find direct nested modules — shallowest level only
-    const nested = [...nestedModuleFiles]
-      .filter((f) => path.dirname(f.fsPath) !== moduleDir)
-      .sort((a, b) => a.fsPath.length - b.fsPath.length);
-
-    const nestedModuleDirs: NestedModuleDir[] = [];
-    for (const file of nested) {
-      const dir = path.dirname(file.fsPath);
-      const isInsideExisting = nestedModuleDirs.some((m) =>
-        dir.startsWith(m.dir + path.sep),
-      );
-      if (!isInsideExisting) {
-        nestedModuleDirs.push({
-          uri: file,
-          dir,
-          base: path.basename(file.fsPath, ".module.ts"),
-        });
-      }
-    }
 
     // Own files — exclude anything inside a nested module's subtree
     const categoryOrder = [
@@ -260,9 +222,7 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
     const ownFiles = allFiles
       .filter((file) => {
         const fileDir = path.dirname(file.uri.fsPath);
-        return !nestedModuleDirs.some(
-          (m) => fileDir === m.dir || fileDir.startsWith(m.dir + path.sep),
-        );
+        return !isInsideAnyDir(fileDir, nestedModuleDirs);
       })
       .sort((a, b) => {
         const idxA = categoryOrder.indexOf(a.category);
@@ -275,7 +235,39 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
         return a.fileName.localeCompare(b.fileName);
       });
 
-    const result = { ownFiles, nestedModuleDirs };
+    // DI health of this module's OWN area: decorated classes that no
+    // module registers (orphans) + classes registered in the wrong array
+    // (a @Controller under `providers`, or a non-controller under
+    // `controllers`). Both surfaces also via the tree's context menus.
+    const [providerClasses, regEntries, registrations] = await Promise.all([
+      findProviderClasses(),
+      getRegistrationEntries(),
+      getRegistrationIndex(),
+    ]);
+    const decoratorOf = new Map<string, string>(
+      providerClasses.map((p) => [p.className, p.decorator] as const),
+    );
+    const inOwnArea = (fsPath: string): boolean => {
+      const dir = path.dirname(fsPath);
+      return (
+        (dir === moduleDir || dir.startsWith(moduleDir + path.sep)) &&
+        !isInsideAnyDir(dir, nestedModuleDirs)
+      );
+    };
+    const orphans = providerClasses.filter(
+      (p) => inOwnArea(p.uri.fsPath) && !registrations.has(p.className),
+    ).length;
+    const wrongArray = regEntries.filter((e) => {
+      if (path.dirname(e.uri.fsPath) !== moduleDir) return false;
+      const deco = decoratorOf.get(e.name);
+      if (!deco) return false;
+      return (
+        (e.key === "providers" && deco === "Controller") ||
+        (e.key === "controllers" && deco !== "Controller")
+      );
+    }).length;
+
+    const result = { ownFiles, nestedModuleDirs, issues: orphans + wrongArray };
     this.contentsCache.set(moduleDir, result);
     return result;
   }
@@ -309,31 +301,60 @@ export class ModuleTreeProvider implements vscode.TreeDataProvider<ModuleTreeIte
       }
     }
 
+    // Registration state for context tokens — drives the right-click
+    // "Register in Module" action on unregistered (orphan) providers
+    const [providerClasses, registrations] = await Promise.all([
+      findProviderClasses(),
+      getRegistrationIndex(),
+    ]);
+    const classByFile = new Map<string, ProviderClassInfo>();
+    for (const p of providerClasses) {
+      if (!classByFile.has(p.uri.fsPath)) classByFile.set(p.uri.fsPath, p);
+    }
+
     // Nested modules first, alphabetically
     for (const mod of [...visibleNested].sort((a, b) =>
       a.base.localeCompare(b.base),
     )) {
-      items.push(
-        new ModuleTreeItem(
-          mod.base,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          "module",
-          mod.uri,
-          mod.dir,
-        ),
+      const item = new ModuleTreeItem(
+        mod.base,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        "module",
+        mod.uri,
+        mod.dir,
       );
+      // Same health badge the top-level rows carry
+      const nested = await this.computeModuleContents(mod.dir);
+      if (nested.issues > 0) {
+        item.description = `$(warning) ${nested.issues} issue${nested.issues === 1 ? "" : "s"}`;
+      }
+      items.push(item);
     }
 
     // Then own files grouped by category
     for (const file of visibleFiles) {
-      items.push(
-        new ModuleTreeItem(
-          file.fileName,
-          vscode.TreeItemCollapsibleState.None,
-          "file",
-          file.uri,
-        ),
+      const item = new ModuleTreeItem(
+        file.fileName,
+        vscode.TreeItemCollapsibleState.None,
+        "file",
+        file.uri,
       );
+      const cls = classByFile.get(file.uri.fsPath);
+      if (cls) {
+        const registered = registrations.has(cls.className);
+        // Space-separated tokens: the context menus match them with =~
+        item.contextValue = registered
+          ? "nestFile nestRegistered"
+          : "nestFile nestOrphan";
+        item.tooltip = new vscode.MarkdownString(
+          `${vscode.workspace.asRelativePath(file.uri)}\n\n@${cls.decorator} **${cls.className}** — ${
+            registered
+              ? `registered in ${registrations.get(cls.className)?.moduleName}`
+              : "⚠️ not registered in any module"
+          }`,
+        );
+      }
+      items.push(item);
     }
 
     return items;

@@ -1,27 +1,11 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { getExcludeGlob } from "../utils/config";
 import { findAllModuleFiles } from "../commands/searchModuleFiles";
+import { isInsideAnyDir, findDirectNestedModules } from "../utils/moduleDirs";
 
 interface CacheEntry {
   fileCount: number;
   nestedModuleCount: number;
-}
-
-async function countNestedModules(moduleDir: string): Promise<number> {
-  const allModuleFiles = await vscode.workspace.findFiles(
-    new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-    getExcludeGlob(),
-  );
-
-  const nestedDirs = new Set<string>();
-  for (const file of allModuleFiles) {
-    const dir = path.dirname(file.fsPath);
-    if (dir !== moduleDir) {
-      nestedDirs.add(dir);
-    }
-  }
-  return nestedDirs.size;
 }
 
 export class ModuleCodeLensProvider implements vscode.CodeLensProvider {
@@ -59,11 +43,23 @@ export class ModuleCodeLensProvider implements vscode.CodeLensProvider {
 
     let entry = this.cache.get(moduleDir);
     if (!entry) {
-      const [allFiles, nestedModuleCount] = await Promise.all([
+      // Counts match the sidebar tree exactly: own files only (files
+      // inside nested modules belong to the nested module, not here) and
+      // DIRECT nested modules (the old lens counted every nested dir at
+      // any depth and all files incl. nested subtrees — the numbers
+      // disagreed with the tree for any module with nested modules).
+      const [allFiles, nestedModuleDirs] = await Promise.all([
         findAllModuleFiles(moduleDir),
-        countNestedModules(moduleDir),
+        findDirectNestedModules(moduleDir),
       ]);
-      entry = { fileCount: allFiles.length, nestedModuleCount };
+      const ownFiles = allFiles.filter((file) => {
+        const fileDir = path.dirname(file.uri.fsPath);
+        return !isInsideAnyDir(fileDir, nestedModuleDirs);
+      });
+      entry = {
+        fileCount: ownFiles.length,
+        nestedModuleCount: nestedModuleDirs.length,
+      };
       this.cache.set(moduleDir, entry);
     }
 

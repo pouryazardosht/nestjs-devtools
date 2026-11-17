@@ -9,37 +9,23 @@ import {
   showQuickPickWithShortcuts,
 } from "../utils/quickPickHelpers";
 import { getExcludeGlob } from "../utils/config";
+import { findFilesSafe } from "../utils/scan";
+import { findDirectNestedModules } from "../utils/moduleDirs";
 import { findAllModuleFiles } from "./searchModuleFiles";
 
 async function findNestedModules(
   moduleDir: string,
 ): Promise<NestedModuleInfo[]> {
-  // One pair of scans for the whole module subtree — per-nested-module
-  // subtree rescans used to re-walk the same directories repeatedly
-  const [allModuleFiles, allTsFiles] = await Promise.all([
-    vscode.workspace.findFiles(
-      new vscode.RelativePattern(moduleDir, "**/*.module.ts"),
-      getExcludeGlob(),
-    ),
-    vscode.workspace.findFiles(
+  // The nested-module discovery itself is shared (utils/moduleDirs) so the
+  // picker, the tree and the CodeLens counts agree; only the per-subtree
+  // file counts are picker-specific. One scan pair for the whole subtree.
+  const [nestedDirs, allTsFiles] = await Promise.all([
+    findDirectNestedModules(moduleDir),
+    findFilesSafe(
       new vscode.RelativePattern(moduleDir, "**/*.ts"),
       getExcludeGlob(),
     ),
   ]);
-
-  const nestedDirs: { uri: vscode.Uri; dir: string }[] = [];
-  const sorted = [...allModuleFiles]
-    .filter((file) => path.dirname(file.fsPath) !== moduleDir)
-    .sort((a, b) => a.fsPath.length - b.fsPath.length);
-
-  for (const file of sorted) {
-    const dir = path.dirname(file.fsPath);
-    const isInsideExisting = nestedDirs.some((m) =>
-      dir.startsWith(m.dir + path.sep),
-    );
-    if (isInsideExisting) continue;
-    nestedDirs.push({ uri: file, dir });
-  }
 
   const underDir = (dir: string): number =>
     allTsFiles.filter((f) => {
@@ -50,7 +36,7 @@ async function findNestedModules(
   return nestedDirs.map((mod) => ({
     uri: mod.uri,
     dir: mod.dir,
-    base: path.basename(mod.uri.fsPath, ".module.ts"),
+    base: mod.base,
     fileCount: underDir(mod.dir),
   }));
 }
@@ -106,7 +92,9 @@ async function exploreModule(
   }
 
   if (selection.isModule && selection.moduleDir) {
-    const moduleBase = path.basename(selection.moduleDir);
+    // Use the module FILE's base name for the breadcrumb — the directory
+    // name can differ (e.g. admin/ containing settings.module.ts)
+    const moduleBase = selection.moduleBase ?? path.basename(selection.moduleDir);
     await exploreModule(selection.moduleDir, moduleBase, [
       ...stack,
       { dir: moduleDir, label },
@@ -121,10 +109,7 @@ async function exploreModule(
 }
 
 export async function moduleSearcherCommand() {
-  const moduleFiles = await vscode.workspace.findFiles(
-    "**/*.module.ts",
-    getExcludeGlob(),
-  );
+  const moduleFiles = await findFilesSafe("**/*.module.ts", getExcludeGlob());
   if (!moduleFiles.length) {
     vscode.window.showInformationMessage(await noNestProjectMessage());
     return;

@@ -1,3 +1,4 @@
+import * as path from "path";
 import * as vscode from "vscode";
 import { apiDocsCoverageCommand } from "./commands/apiDocsCoverage";
 import { findProviderUsagesCommand } from "./commands/findProviderUsages";
@@ -14,10 +15,21 @@ import {
 import { removeLogsCommand } from "./commands/removeLogs";
 import {
   invalidateModuleFilesCache,
+  registerInModuleCommand,
   RegisterProviderCodeActionProvider,
 } from "./commands/registerProviderFix";
+import {
+  copyControllerRoutesCommand,
+  copyRouteCurlCommand,
+  copyRouteCommand,
+  copyRouteUrlCommand,
+} from "./commands/routeTreeActions";
 import { searchAllModulesCommand } from "./commands/searchAllModules";
 import { searchModuleFilesCommand } from "./commands/searchModuleFiles";
+import {
+  refreshRouteConflictDiagnostics,
+  routeConflictsCommand,
+} from "./commands/routeConflicts";
 import { LOGGER_METHODS } from "./constants";
 import { ModuleCodeLensProvider } from "./providers/moduleCodeLensProvider";
 import { ModuleTreeProvider } from "./providers/moduleTreeProvider";
@@ -27,11 +39,16 @@ import {
   removeNestIndexEntry,
   updateNestIndexForSave,
 } from "./utils/nestIndex";
+import { invalidateGlobalPrefixCache } from "./utils/globalPrefix";
 import { trackActiveEditor } from "./utils/targetEditor";
 import { createModuleSearcherStatusBarItem } from "./statusBar";
 
 /** Pending debounced watcher refresh — cleared on deactivation. */
 let watcherRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+/** Pending debounced route-conflict diagnostic refresh — cleared on deactivation. */
+let conflictRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+/** True once the user has run "Diagnose · Route Conflicts" — then the Problems entries auto-refresh on controller changes. */
+let conflictWatchActive = false;
 
 export function activate(context: vscode.ExtensionContext) {
   // Logger commands
@@ -98,6 +115,18 @@ export function activate(context: vscode.ExtensionContext) {
     () => void apiDocsCoverageCommand(),
   );
 
+  // Route conflicts: duplicate/shadowed/overlapping routes, statically
+  const routeConflictDiagnostics = vscode.languages.createDiagnosticCollection(
+    "nestjs-devtools-routes",
+  );
+  const routeConflictsSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.routeConflicts",
+    async () => {
+      await routeConflictsCommand(routeConflictDiagnostics);
+      conflictWatchActive = true;
+    },
+  );
+
   // Quick fixes on Provider Health warnings (register in module)
   const codeActionsSub = vscode.languages.registerCodeActionsProvider(
     { language: "typescript" },
@@ -108,14 +137,52 @@ export function activate(context: vscode.ExtensionContext) {
   // The Nest index (classes + module registrations) caches per file — a
   // save reparses only that file; the next command never rescans the
   // workspace (except exclude-setting changes, which drop the whole cache)
-  const indexInvalidationSub = vscode.workspace.onDidSaveTextDocument((doc) =>
-    updateNestIndexForSave(doc),
-  );
+  // Route-conflict Problems entries stay accurate as routes change —
+  // silently refreshed (debounced) on controller changes, but ONLY once
+  // the user has run the command (a non-empty collection = opted in)
+  const scheduleConflictRefresh = (): void => {
+    if (!conflictWatchActive) return;
+    if (conflictRefreshTimer) clearTimeout(conflictRefreshTimer);
+    conflictRefreshTimer = setTimeout(() => {
+      conflictRefreshTimer = undefined;
+      void refreshRouteConflictDiagnostics(routeConflictDiagnostics);
+    }, 400);
+  };
 
-  // Settings that affect scans/trees take effect instantly: drop caches and
-  // repaint when the exclude patterns change
+  const indexInvalidationSub = vscode.workspace.onDidSaveTextDocument((doc) => {
+    // The global prefix lives in main/bootstrap — a save can add, change
+    // or remove it, which changes every route's served path
+    const base = path.basename(doc.uri.fsPath);
+    if (base === "main.ts" || base === "bootstrap.ts") {
+      invalidateGlobalPrefixCache();
+      routesProvider.invalidateAll();
+    }
+    if (base.endsWith(".controller.ts")) {
+      scheduleConflictRefresh();
+    }
+    updateNestIndexForSave(doc);
+  });
+
+  // Settings that affect scans/trees take effect instantly: drop caches
+  // and repaint. exclude affects scans; showCounts/colorVerbs/showMissingDocs
+  // and customTypes change what the trees render (the old code only
+  // watched exclude, so those settings needed a manual refresh despite
+  // being documented as instant).
+  const REPAINT_SETTINGS = [
+    "exclude",
+    "tree.showCounts",
+    "routes.colorVerbs",
+    "swagger.showMissingDocs",
+    "customTypes",
+    "diagnostics.routeConflicts",
+    "routes.baseUrl",
+  ];
   const settingsSub = vscode.workspace.onDidChangeConfiguration((e) => {
-    if (e.affectsConfiguration("nestjs-devtools.exclude")) {
+    if (
+      REPAINT_SETTINGS.some((s) =>
+        e.affectsConfiguration(`nestjs-devtools.${s}`),
+      )
+    ) {
       invalidateNestIndex();
       invalidateModuleFilesCache();
       treeProvider.refresh();
@@ -124,10 +191,35 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Find usages of the active file's provider (TS language service)
+  // Find usages of the active file's provider (TS language service) —
+  // also reachable by right-clicking a file in the Modules tree
   const findUsagesSub = vscode.commands.registerCommand(
     "nestjs-log-helper.findProviderUsages",
-    () => void findProviderUsagesCommand(),
+    (arg?: unknown) => void findProviderUsagesCommand(arg),
+  );
+
+  // Routes tree context menu: copy route / full URL / cURL, controller routes
+  const copyRouteSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.copyRoute",
+    (arg?: unknown) => copyRouteCommand(arg),
+  );
+  const copyRouteUrlSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.copyRouteUrl",
+    (arg?: unknown) => copyRouteUrlCommand(arg),
+  );
+  const copyRouteCurlSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.copyRouteCurl",
+    (arg?: unknown) => copyRouteCurlCommand(arg),
+  );
+  const copyControllerRoutesSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.copyControllerRoutes",
+    (arg?: unknown) => void copyControllerRoutesCommand(arg),
+  );
+
+  // Modules tree context menu: register an orphan provider in its module
+  const registerInModuleSub = vscode.commands.registerCommand(
+    "nestjs-log-helper.registerInModule",
+    (arg?: unknown) => void registerInModuleCommand(arg),
   );
 
   // Generate NestJS file (from command palette or tree view right-click)
@@ -186,17 +278,41 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   const watcher = vscode.workspace.createFileSystemWatcher("**/*.ts");
-  watcher.onDidCreate(() => {
+  // npm install / build tool bursts inside node_modules shouldn't trigger
+  // refreshes (user excludes are honored at scan time anyway — these
+  // events would only cause wasted repaints)
+  const isExcludedEvent = (fsPath: string): boolean =>
+    fsPath.includes(`${path.sep}node_modules${path.sep}`);
+  watcher.onDidCreate((uri) => {
+    if (isExcludedEvent(uri.fsPath)) return;
     invalidateModuleFilesCache();
+    // A newly created controller's routes appear without a manual
+    // refresh — symmetric with the delete branch below
+    if (uri.fsPath.endsWith(".controller.ts")) {
+      routesProvider.invalidateFile(uri);
+      scheduleConflictRefresh();
+    }
+    const base = path.basename(uri.fsPath);
+    if (base === "main.ts" || base === "bootstrap.ts") {
+      invalidateGlobalPrefixCache();
+      routesProvider.invalidateAll();
+    }
     debouncedWatcherRefresh();
   });
   watcher.onDidDelete((uri) => {
+    if (isExcludedEvent(uri.fsPath)) return;
     removeNestIndexEntry(uri);
     invalidateModuleFilesCache();
     // Only a deleted controller's own parse entry goes stale — routes of
     // every other controller stay valid (was: full cache clear per delete)
     if (uri.fsPath.endsWith(".controller.ts")) {
       routesProvider.invalidateFile(uri);
+      scheduleConflictRefresh();
+    }
+    const base = path.basename(uri.fsPath);
+    if (base === "main.ts" || base === "bootstrap.ts") {
+      invalidateGlobalPrefixCache();
+      routesProvider.invalidateAll();
     }
     debouncedWatcherRefresh();
   });
@@ -229,23 +345,21 @@ export function activate(context: vscode.ExtensionContext) {
     input.show();
   };
 
-  let moduleFilterBox: vscode.InputBox | undefined;
+  // A fresh InputBox per invocation — openFilterBox disposes the box when
+  // hidden, so a cached one could never be re-shown (disposed QuickInputs
+  // silently no-op). The current filter value is seeded from the provider,
+  // which persists it between sessions.
   const filterModuleTreeSub = vscode.commands.registerCommand(
     "nestjs-log-helper.filterModuleTree",
     () => {
-      if (moduleFilterBox) {
-        moduleFilterBox.value = treeProvider.filterValue;
-        moduleFilterBox.show();
-        return;
-      }
-      moduleFilterBox = vscode.window.createInputBox();
-      moduleFilterBox.value = treeProvider.filterValue;
-      moduleFilterBox.title = "Filter module files";
-      moduleFilterBox.placeholder = "e.g. service, auth, dto";
-      moduleFilterBox.prompt =
+      const box = vscode.window.createInputBox();
+      box.value = treeProvider.filterValue;
+      box.title = "Filter module files";
+      box.placeholder = "e.g. service, auth, dto";
+      box.prompt =
         "Type to filter live — matches file and module names. Clear the text and press Enter to reset.";
       openFilterBox(
-        moduleFilterBox,
+        box,
         (value) => treeProvider.setFilter(value),
         (value) =>
           (moduleTreeView.message = value.trim()
@@ -255,23 +369,17 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  let routesFilterBox: vscode.InputBox | undefined;
   const filterRoutesTreeSub = vscode.commands.registerCommand(
     "nestjs-log-helper.filterRoutesTree",
     () => {
-      if (routesFilterBox) {
-        routesFilterBox.value = routesProvider.filterValue;
-        routesFilterBox.show();
-        return;
-      }
-      routesFilterBox = vscode.window.createInputBox();
-      routesFilterBox.value = routesProvider.filterValue;
-      routesFilterBox.title = "Filter routes";
-      routesFilterBox.placeholder = "e.g. /users, GET, findOne";
-      routesFilterBox.prompt =
+      const box = vscode.window.createInputBox();
+      box.value = routesProvider.filterValue;
+      box.title = "Filter routes";
+      box.placeholder = "e.g. /users, GET, findOne";
+      box.prompt =
         "Type to filter live — matches path, method name, verb, or @ApiOperation summary. Clear the text and press Enter to reset.";
       openFilterBox(
-        routesFilterBox,
+        box,
         (value) => routesProvider.setFilter(value),
         (value) =>
           (routesTreeView.message = value.trim()
@@ -285,14 +393,20 @@ export function activate(context: vscode.ExtensionContext) {
   const openRouteSub = vscode.commands.registerCommand(
     "nestjs-log-helper.openRoute",
     async (uri: vscode.Uri, line: number) => {
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const editor = await vscode.window.showTextDocument(doc);
-      const pos = new vscode.Position(line, 0);
-      editor.selection = new vscode.Selection(pos, pos);
-      editor.revealRange(
-        new vscode.Range(pos, pos),
-        vscode.TextEditorRevealType.InCenter,
-      );
+      try {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const editor = await vscode.window.showTextDocument(doc);
+        const pos = new vscode.Position(line, 0);
+        editor.selection = new vscode.Selection(pos, pos);
+        editor.revealRange(
+          new vscode.Range(pos, pos),
+          vscode.TextEditorRevealType.InCenter,
+        );
+      } catch {
+        void vscode.window.showErrorMessage(
+          "Route file no longer exists — refresh the Routes tree.",
+        );
+      }
     },
   );
 
@@ -309,11 +423,18 @@ export function activate(context: vscode.ExtensionContext) {
     providerHealthSub,
     goToProvidingModuleSub,
     apiDocsCoverageSub,
+    routeConflictsSub,
     codeActionsSub,
     providerDiagnostics,
+    routeConflictDiagnostics,
     indexInvalidationSub,
     settingsSub,
     findUsagesSub,
+    copyRouteSub,
+    copyRouteUrlSub,
+    copyRouteCurlSub,
+    copyControllerRoutesSub,
+    registerInModuleSub,
     codeLensSub,
     moduleTreeView,
     routesTreeView,
@@ -335,5 +456,8 @@ function capitalize(s: string): string {
 export function deactivate() {
   if (watcherRefreshTimer) {
     clearTimeout(watcherRefreshTimer);
+  }
+  if (conflictRefreshTimer) {
+    clearTimeout(conflictRefreshTimer);
   }
 }

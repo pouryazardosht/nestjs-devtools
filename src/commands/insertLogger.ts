@@ -1,38 +1,20 @@
 import * as vscode from "vscode";
 import { LOGGER_METHODS } from "../constants";
-import { logIncludeValue, loggerDeclarationTemplate } from "../utils/config";
+import {
+  logIncludeValue,
+  logTemplate,
+  loggerDeclarationTemplate,
+} from "../utils/config";
+import { findEnclosingClassLine } from "../utils/classBody";
 import { getTargetEditor } from "../utils/targetEditor";
 import { getEnclosingClassName } from "../utils/getEnclosingClassName";
 import { findInsertionPoint } from "../utils/insertionPoint";
+import { importInsertionPosition } from "../utils/imports";
 import {
   findClassOpeningBrace,
   findLoggerImportState,
   hasLoggerDeclaration,
 } from "../utils/loggerDeclaration";
-
-/**
- * Finds the line number of the class declaration that encloses the
- * given line (not just the class name — we need the actual line index
- * so we can locate the opening brace).
- */
-function findEnclosingClassLine(
-  document: vscode.TextDocument,
-  line: number,
-): number | undefined {
-  const classRegex =
-    /^\s*(?:export\s+)?(?:abstract\s+)?class\s+([a-zA-Z_$][\w$]*)/;
-  let depth = 0;
-
-  for (let i = line; i >= 0; i--) {
-    const text = document.lineAt(i).text;
-    const opens = (text.match(/\{/g) || []).length;
-    const closes = (text.match(/\}/g) || []).length;
-    depth += closes - opens;
-
-    if (text.match(classRegex) && depth <= 0) return i;
-  }
-  return undefined;
-}
 
 /**
  * Builds the edits needed to:
@@ -51,37 +33,39 @@ function buildDeclarationEdits(
     className,
   );
   const declarationUsesLogger = /\bLogger\b/.test(declarationText);
-  const { hasImport, importLine, importText } = findLoggerImportState(document);
+  const importState = findLoggerImportState(document);
 
-  if (!hasImport && declarationUsesLogger) {
-    if (importLine !== undefined && importText !== undefined) {
-      // @nestjs/common import exists but Logger isn't in it — add it
-      const updated = importText.replace(
-        /\{([^}]+)\}/,
-        (_, inner) => `{ ${inner.trim()}, Logger }`,
-      );
-      editBuilder.replace(document.lineAt(importLine).range, updated);
-    } else {
-      // No @nestjs/common import at all — prepend one
+  if (declarationUsesLogger && !importState.hasImport) {
+    if (importState.addLoggerEdit) {
+      // @nestjs/common import exists but Logger isn't in it — extend the
+      // list in place (handles single- AND multi-line import formatting)
       editBuilder.insert(
-        new vscode.Position(0, 0),
+        importState.addLoggerEdit.position,
+        importState.addLoggerEdit.text,
+      );
+    } else {
+      // No @nestjs/common import at all — add one after the import block
+      // (or after a leading header comment; never above it)
+      editBuilder.insert(
+        importInsertionPosition(document),
         `import { Logger } from '@nestjs/common';\n`,
       );
     }
   }
 
   // --- Logger property declaration ---
-  const openingBraceLine = findClassOpeningBrace(document, classLine);
-  if (openingBraceLine === undefined) return;
+  const openingBrace = findClassOpeningBrace(document, classLine);
+  if (openingBrace === undefined) return;
 
-  const braceLineText = document.lineAt(openingBraceLine).text;
   const indentation = "  "; // 2-space indent inside class body
   const declaration = `\n${indentation}${declarationText}\n`;
 
-  // Insert right after the '{' on the class opening line
+  // Insert right after the '{' of the class body (raw column from the
+  // strip-aware scan — the first raw `{` on the line may belong to a
+  // decorator or generic)
   const insertPos = new vscode.Position(
-    openingBraceLine,
-    braceLineText.indexOf("{") + 1,
+    openingBrace.line,
+    openingBrace.col + 1,
   );
   editBuilder.insert(insertPos, declaration);
 }
@@ -114,15 +98,22 @@ export function insertLoggerStatement(method: string) {
   const className = getEnclosingClassName(document, lineNumber);
 
   // Message format is user-configurable (nestjs-devtools.logTemplate)
-  const template =
-    vscode.workspace
-      .getConfiguration("nestjs-devtools")
-      .get<string>("logTemplate") ?? "{emoji} {class} ~ {variable}";
+  const template = logTemplate();
   const emoji = LOGGER_METHODS[method] || "🔍";
+  // {variable} goes inside a double-quoted string literal — a multi-line
+  // selection would embed a raw newline (syntax error), so collapse
+  // whitespace runs to single spaces. The value argument below keeps the
+  // raw selection: newlines are valid inside an argument list.
+  const messageVariable = selectedText.replace(/\s+/g, " ").trim();
+  // {object} is a marker token, not message text: the value is appended
+  // as an object argument (`…, { userId }` — structured-logging style)
+  // instead of a bare one, and the marker is removed from the message.
+  const wantsObject = /\{object\}/i.test(template);
   const message = template
     .replace(/\{emoji\}/g, emoji)
     .replace(/\{class\}/g, className ?? "")
-    .replace(/\{variable\}/g, selectedText)
+    .replace(/\{variable\}/g, messageVariable)
+    .replace(/\{object\}/gi, "")
     .replace(/ {2,}/g, " ")
     .trim();
   // Escape quotes/backslashes so a user template can't break the string
@@ -131,12 +122,20 @@ export function insertLoggerStatement(method: string) {
     .replace(/"/g, '\\"');
 
   const insertion = findInsertionPoint(document, lineNumber);
-  const valueArg = logIncludeValue() ? `, ${selectedText}` : "";
+  const valueArg = wantsObject
+    ? `, { ${selectedText} }`
+    : logIncludeValue()
+      ? `, ${selectedText}`
+      : "";
   const logStatement = `${insertion.indent}this.logger.${method}("${escapedMessage}"${valueArg});`;
   const insertLog = (editBuilder: vscode.TextEditorEdit): void => {
     if (insertion.at) {
-      // Empty-bodied signature (constructor() {}) — inside the braces
-      editBuilder.insert(insertion.at, `\n${logStatement}`);
+      // Empty-bodied signature (constructor() {}) — insert inside the
+      // braces and move the closing brace to its own line. indent is
+      // sigIndent + 2 spaces (set by findInsertionPoint), so slicing the
+      // 2 spaces off recovers the closing brace's indentation.
+      const sigIndent = insertion.indent.slice(0, -2);
+      editBuilder.insert(insertion.at, `\n${logStatement}\n${sigIndent}`);
     } else {
       editBuilder.insert(
         new vscode.Position(insertion.line + 1, 0),

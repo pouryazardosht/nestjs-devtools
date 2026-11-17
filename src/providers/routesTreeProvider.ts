@@ -1,18 +1,36 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { HTTP_METHOD_ORDER, httpMethodIcon, RouteInfo, extractRoutes } from "../utils/routeUtils";
-import { showCounts } from "../utils/config";
+import {
+  HTTP_METHOD_ORDER,
+  httpMethodIcon,
+  RouteInfo,
+  extractRoutes,
+  withGlobalPrefix,
+} from "../utils/routeUtils";
+import { showCounts, routeConflictsEnabled } from "../utils/config";
 import { brandIcon } from "../utils/quickPickHelpers";
 import { missingDocsFlag } from "../utils/routeUtils";
 import { getExcludeGlob } from "../utils/config";
-import { mapWithConcurrency, readTextFile, SCAN_CONCURRENCY } from "../utils/scan";
+import {
+  findFilesSafe,
+  mapWithConcurrency,
+  readTextFile,
+  SCAN_CONCURRENCY,
+} from "../utils/scan";
+import { getGlobalPrefix } from "../utils/globalPrefix";
+import { computeRouteConflicts, RouteConflict } from "../utils/routeConflicts";
 
-type TreeItemType = "controller" | "route" | "empty";
+type TreeItemType = "controller" | "route" | "conflictGroup" | "conflict" | "empty";
 
 interface RouteCacheEntry {
   routes: RouteInfo[];
   /** First @ApiTags value on the controller class, if any. */
   tag?: string;
+}
+
+/** Stable key for a route row (conflict lookups). */
+export function routeKey(route: RouteInfo): string {
+  return `${route.uri.fsPath}:${route.line}:${route.httpMethod}:${route.fullPath}`;
 }
 
 /** First @ApiTags('…') string on the controller class. */
@@ -56,6 +74,13 @@ export class RoutesTreeProvider
   private saveListener: vscode.Disposable;
   private watchListener: vscode.Disposable;
   private debouncedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Route keys currently in a (non-info) conflict — set on getControllers. */
+  private conflictedKeys = new Set<string>();
+  /** Number of actionable conflicts (certain/heuristic), for the badge. */
+  private conflictCount = 0;
+  /** All detected conflicts — rendered by the tree's Conflicts group. */
+  private lastConflicts: RouteConflict[] = [];
 
   constructor() {
     this.saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -116,6 +141,9 @@ export class RoutesTreeProvider
     if (!element) {
       return this.getControllers();
     }
+    if (element.type === "conflictGroup") {
+      return this.getConflictChildren();
+    }
     if (element.type === "controller") {
       return this.getRoutesForController(element.controllerPath!);
     }
@@ -123,7 +151,7 @@ export class RoutesTreeProvider
   }
 
   private async getControllers(): Promise<RouteTreeItem[]> {
-    const controllerFiles = await vscode.workspace.findFiles(
+    const controllerFiles = await findFilesSafe(
       "**/*.controller.ts",
       getExcludeGlob(),
     );
@@ -131,6 +159,14 @@ export class RoutesTreeProvider
     const sortedFiles = controllerFiles.sort((a, b) =>
       path.basename(a.fsPath).localeCompare(path.basename(b.fsPath)),
     );
+
+    // Same-named controllers in different modules are indistinguishable
+    // in the tree — disambiguate their descriptions with the directory
+    const nameCounts = new Map<string, number>();
+    for (const f of sortedFiles) {
+      const base = path.basename(f.fsPath);
+      nameCounts.set(base, (nameCounts.get(base) ?? 0) + 1);
+    }
 
     const filter = this.filterText.trim().toLowerCase();
 
@@ -142,6 +178,24 @@ export class RoutesTreeProvider
       (uri) => this.routesFor(uri.fsPath),
     );
 
+    // Conflict detection over the freshly parsed (already prefixed) routes
+    if (routeConflictsEnabled()) {
+      const conflicts = computeRouteConflicts(entries.flatMap((e) => e.routes));
+      this.lastConflicts = conflicts;
+      this.conflictedKeys = new Set(
+        conflicts
+          .filter((c) => c.confidence !== "info")
+          .flatMap((c) => c.routes.map(routeKey)),
+      );
+      this.conflictCount = conflicts.filter(
+        (c) => c.confidence !== "info",
+      ).length;
+    } else {
+      this.lastConflicts = [];
+      this.conflictedKeys = new Set();
+      this.conflictCount = 0;
+    }
+
     if (!filter) {
       let total = 0;
       const items: RouteTreeItem[] = [];
@@ -150,21 +204,44 @@ export class RoutesTreeProvider
         const { routes, tag } = entries[i];
         total += routes.length;
         const item = new RouteTreeItem(uri, "controller", undefined, uri.fsPath);
+        const isDuplicateName =
+          (nameCounts.get(path.basename(uri.fsPath)) ?? 0) > 1;
         item.description = [
           showCounts()
             ? `${routes.length} route${routes.length === 1 ? "" : "s"}`
             : undefined,
           tag,
+          isDuplicateName
+            ? vscode.workspace.asRelativePath(
+                vscode.Uri.file(path.dirname(uri.fsPath)),
+              )
+            : undefined,
         ]
           .filter(Boolean)
           .join(" · ");
         items.push(item);
       }
+      // Pinned Conflicts group — conflicts glanceable without the command
+      if (this.conflictCount > 0) {
+        items.unshift(
+          new RouteTreeItem(
+            undefined,
+            "conflictGroup",
+            undefined,
+            undefined,
+            `Conflicts (${this.conflictCount})`,
+          ),
+        );
+      }
       this.badgeSink?.(
         showCounts()
           ? {
               value: total,
-              tooltip: `${total} route${total === 1 ? "" : "s"} in workspace`,
+              tooltip:
+                `${total} route${total === 1 ? "" : "s"} in workspace` +
+                (this.conflictCount > 0
+                  ? ` · ${this.conflictCount} route conflict${this.conflictCount === 1 ? "" : "s"}`
+                  : ""),
             }
           : undefined,
       );
@@ -206,14 +283,44 @@ export class RoutesTreeProvider
     let entry = this.cache.get(controllerPath);
     if (!entry) {
       const uri = vscode.Uri.file(controllerPath);
-      const text = await readTextFile(uri);
+      const [text, prefix] = await Promise.all([
+        readTextFile(uri),
+        getGlobalPrefix(),
+      ]);
       entry = {
-        routes: text === undefined ? [] : extractRoutes(uri, text),
+        routes:
+          text === undefined
+            ? []
+            : extractRoutes(uri, text).map((r) => ({
+                ...r,
+                fullPath: withGlobalPrefix(prefix, r.fullPath),
+              })),
         tag: text ? parseApiTags(text) : undefined,
       };
       this.cache.set(controllerPath, entry);
     }
     return entry;
+  }
+
+  /** Children of the pinned Conflicts group: one row per participating route. */
+  private getConflictChildren(): RouteTreeItem[] {
+    const items: RouteTreeItem[] = [];
+    for (const conflict of this.lastConflicts) {
+      for (const route of conflict.routes) {
+        items.push(
+          new RouteTreeItem(
+            undefined,
+            "conflict",
+            route,
+            undefined,
+            undefined,
+            undefined,
+            conflict,
+          ),
+        );
+      }
+    }
+    return items;
   }
 
   private async getRoutesForController(
@@ -238,7 +345,15 @@ export class RoutesTreeProvider
     });
 
     return sorted.map(
-      (route) => new RouteTreeItem(undefined, "route", route),
+      (route) =>
+        new RouteTreeItem(
+          undefined,
+          "route",
+          route,
+          undefined,
+          undefined,
+          this.conflictedKeys.has(routeKey(route)),
+        ),
     );
   }
 }
@@ -259,10 +374,50 @@ export class RouteTreeItem extends vscode.TreeItem {
     public readonly type: TreeItemType,
     public readonly route?: RouteInfo,
     public readonly controllerPath?: string,
-    /** Label used for "no match" placeholder items. */
+    /** Label used for "no match" placeholder items and the group label. */
     private readonly filterLabel?: string,
+    /** Route participates in a (non-info) conflict — warning icon. */
+    private readonly conflicted?: boolean,
+    /** The conflict this row belongs to (inside the Conflicts group). */
+    private readonly conflict?: RouteConflict,
   ) {
     super("", vscode.TreeItemCollapsibleState.None);
+
+    if (type === "conflictGroup") {
+      this.label = filterLabel ?? "Conflicts";
+      this.iconPath = new vscode.ThemeIcon(
+        "mirror",
+        new vscode.ThemeColor("editorWarning.foreground"),
+      );
+      this.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+      this.contextValue = "nestConflicts";
+      this.tooltip = "Duplicate, shadowed or overlapping routes — expand for details, or run Diagnose · Route Conflicts";
+      return;
+    }
+
+    if (type === "conflict" && route && conflict) {
+      this.label = `${route.httpMethod}  ${route.fullPath}  —  ${route.methodName}()`;
+      this.description = `${conflict.kind} · ${conflict.confidence}`;
+      this.tooltip = new vscode.MarkdownString(
+        [
+          `**${conflict.kind}** (${conflict.confidence})`,
+          `\n\n${conflict.message}`,
+          conflict.knownLimits ? `\n\n_${conflict.knownLimits}_` : "",
+          `\n\n${route.methodName}() · L${route.line + 1} · ${route.controllerFile}`,
+        ].join(""),
+      );
+      this.iconPath = new vscode.ThemeIcon(
+        "warning",
+        new vscode.ThemeColor("editorWarning.foreground"),
+      );
+      this.contextValue = "nestRoute";
+      this.command = {
+        command: "nestjs-log-helper.openRoute",
+        title: "Open Route Method",
+        arguments: [route.uri, route.line],
+      };
+      return;
+    }
 
     if (type === "controller" && uri) {
       const base = path.basename(uri.fsPath, ".controller.ts");
@@ -279,16 +434,28 @@ export class RouteTreeItem extends vscode.TreeItem {
 
     if (type === "route" && route) {
       this.label = `${route.httpMethod}  ${route.fullPath}  —  ${route.methodName}()`;
-      this.description = route.summary
-        ?? (missingDocsFlag() ? "no docs" : undefined);
+      this.description = [
+        conflicted ? "$(warning) conflict" : undefined,
+        route.summary ?? (missingDocsFlag() ? "no docs" : undefined),
+      ]
+        .filter(Boolean)
+        .join(" · ");
       this.tooltip = new vscode.MarkdownString(
         [
           `**${route.httpMethod} ${route.fullPath}**`,
+          conflicted
+            ? "\n\n⚠️ This route collides with another — run **Diagnose · Route Conflicts** for details."
+            : "",
           route.summary ? `\n\n${route.summary}` : "",
           `\n\n${route.methodName}() · L${route.line + 1} · ${route.controllerFile}`,
         ].join(""),
       );
-      this.iconPath = httpMethodIcon(route.httpMethod);
+      this.iconPath = conflicted
+        ? new vscode.ThemeIcon(
+            "warning",
+            new vscode.ThemeColor("editorWarning.foreground"),
+          )
+        : httpMethodIcon(route.httpMethod);
       this.contextValue = "nestRoute";
       this.command = {
         command: "nestjs-log-helper.openRoute",

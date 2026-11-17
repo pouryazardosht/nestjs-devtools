@@ -25,19 +25,28 @@ function looksLikeInjection(text: string, className: string): boolean {
 }
 
 /**
- * "Find Usages of this provider" — resolves the active file's exported class
+ * "Find Usages of this provider" — resolves the target file's exported class
  * through the TS language service (symbols + references), so we never scan
- * the workspace ourselves.
+ * the workspace ourselves. Accepts an optional tree-item/URI target (the
+ * sidebar Modules tree passes one on right-click); otherwise the active
+ * editor (falling back to the last focused one) is used.
  */
-export async function findProviderUsagesCommand(): Promise<void> {
-  // Falls back to the last focused editor when a sidebar view has focus
-  const editor = getTargetEditor();
-  if (!editor) {
+export async function findProviderUsagesCommand(
+  target?: unknown,
+): Promise<void> {
+  const treeUri =
+    target instanceof vscode.Uri
+      ? target
+      : (target as { uri?: vscode.Uri } | undefined)?.uri;
+
+  const document = treeUri
+    ? await vscode.workspace.openTextDocument(treeUri)
+    : getTargetEditor()?.document;
+  if (!document) {
     vscode.window.showInformationMessage("❌ No active editor");
     return;
   }
 
-  const document = editor.document;
   const className = getExportedClassName(document);
   if (!className) {
     vscode.window.showInformationMessage(

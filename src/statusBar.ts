@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import {
   invalidateNestProjectCache,
+  invalidateNestVersionCache,
   isNestJsProject,
 } from "./utils/nestProject";
 
@@ -24,22 +25,44 @@ export async function createModuleSearcherStatusBarItem(
   item.tooltip = "NestJS DevTools — all commands";
   item.command = "nestjs-log-helper.hub";
 
+  // Register the item BEFORE the first update: if detection throws, the
+  // old code skipped the push and leaked the created item.
+  context.subscriptions.push(item);
+
   const update = async () => {
-    if (await isNestJsProject()) {
-      item.show();
-    } else {
-      item.hide();
+    try {
+      if (await isNestJsProject()) {
+        item.show();
+      } else {
+        item.hide();
+      }
+    } catch {
+      item.hide(); // never let detection failure break the bar
     }
   };
 
+  const invalidateAndRepaint = async () => {
+    invalidateNestProjectCache();
+    invalidateNestVersionCache();
+    await update();
+  };
+
+  // Workspace folders change → re-detect
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
-      invalidateNestProjectCache();
-      await update();
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void invalidateAndRepaint();
+    }),
+  );
+  // Excluding a folder can remove the last *.module.ts — the visibility
+  // must follow (the old code only listened to folder changes)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("nestjs-devtools.exclude")) {
+        void invalidateAndRepaint();
+      }
     }),
   );
 
   await update();
-  context.subscriptions.push(item);
   return item;
 }

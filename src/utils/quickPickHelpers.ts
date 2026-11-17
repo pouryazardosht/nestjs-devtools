@@ -7,6 +7,8 @@ export interface FileQuickPickItem extends vscode.QuickPickItem {
   isModule?: boolean;
   isBack?: boolean;
   moduleDir?: string;
+  /** Base name of the nested module file (may differ from the dir name). */
+  moduleBase?: string;
   /** 0-based line to jump to after opening (route items). */
   line?: number;
   /** Full route path (route items), for the copy button. */
@@ -183,6 +185,7 @@ export function buildGroupedItems(
         iconPath: brandIcon("package"),
         isModule: true,
         moduleDir: mod.dir,
+        moduleBase: mod.base,
         uri: mod.uri,
         buttons: [
           {

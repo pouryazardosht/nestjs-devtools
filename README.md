@@ -77,9 +77,19 @@ setting. Placeholders:
 | `{emoji}`    | The method's emoji (🔍 📝 ⚠️ ❌ 🔊) |
 | `{class}`    | Enclosing class name                |
 | `{variable}` | The selected text                   |
+| `{object}`   | *(marker, not message text)* — the value is appended as an **object argument** (`…, { user }`) instead of a bare one, and the marker is removed from the message |
 
 Default: `"{emoji} {class} ~ {variable}"` → `🔍 UserService ~ user`.
 Remove `{emoji}` to disable emojis entirely:
+
+```jsonc
+{
+  // No emojis, arrow separator instead
+  "nestjs-devtools.logTemplate": "{class} -> {variable}",
+  // Structured-logging style (Nest 12 ConsoleLogger friendly)
+  "nestjs-devtools.logTemplate": "{class} -> {object}",
+}
+```
 
 ```jsonc
 {
@@ -119,6 +129,18 @@ Your full module graph as an expandable tree — no command needed:
 - Each module row shows its **file count** (plus nested-module count) in the
   description column, and the view header carries a badge with the total
   number of root modules.
+- **DI health badges** — a module row whose own area contains unregistered
+  providers or wrong-array registrations (a `@Controller` under
+  `providers`, a service under `controllers`) shows `⚠ N issues` in its
+  description, so DI problems are visible without running anything.
+- **Provider files show their registration status on hover**
+  (`@Injectable UserService — registered in app` / `⚠️ not registered`),
+  and **right-click actions** work on them:
+  - *Register in Module* (orphan providers) — places the class in the
+    nearest module's `providers`/`controllers` array with the import
+    added, without opening the file first;
+  - *Find · Provider Usages* (any file) — the usages command accepts the
+    tree target, no need to focus the file first.
 - Clicking any file opens it immediately.
 - The title bar has **Refresh**, **Search** (live filter), and
   **Generate File** buttons, plus the native **Collapse All** toggle.
@@ -128,6 +150,9 @@ Your full module graph as an expandable tree — no command needed:
 
 Every HTTP route in the workspace, always visible:
 
+- Routes show the **paths the app actually serves** — `setGlobalPrefix('api')`
+  from `main.ts`/`bootstrap.ts` and method-level `@Version('2')` are folded
+  in (`/api/v2/users/:id`), so what you copy is what the router serves.
 - Routes grouped by controller (alphabetical), sorted by HTTP verb then path,
   with **color-coded verb icons** (GET blue, POST green, PUT orange,
   PATCH yellow, DELETE red).
@@ -135,6 +160,14 @@ Every HTTP route in the workspace, always visible:
   if present) in the description column — match count while a filter is
   active — and the view header carries a badge with the total number of
   routes in the workspace.
+- **Conflicts group** — when duplicate, shadowed or overlapping routes are
+  detected, a `Conflicts (N)` section is pinned above the controllers; each
+  row is labelled with its kind and confidence, and clicking it jumps to the
+  handler. Colliding routes also carry a ⚠ marker on their regular rows.
+- **Right-click actions** on route rows: *Copy Route* (`GET /api/v2/users/:id`),
+  *Copy Full URL* (`nestjs-devtools.routes.baseUrl` + prefix + version +
+  path), *Copy as cURL* (with a JSON header and empty body for non-GET
+  verbs) — and *Copy All Routes* on controller rows.
 - Clicking a route opens the controller at the handler's line.
 - Routes missing an `@ApiOperation` summary are flagged **no docs**.
 - Saving a controller re-parses **only that file** (debounced) — cheap to
@@ -181,8 +214,10 @@ Other features:
 - The title bar shows method count, route count, and **docs coverage**:
   `blog.controller.ts · 10 methods · 9 routes · 7/9 documented`.
 - `@Controller` prefixes handle all forms — `@Controller('users')`,
-  `@Controller('users', Guard)`, `@Controller({ path: 'users' })` — and
-  multi-line decorators are parsed correctly.
+  `@Controller('users', Guard)`, `@Controller({ version: '1', path: 'users' })`
+  (any key order) — and `@Version('2')` plus the app's
+  `setGlobalPrefix` are folded into the shown route, so the picker shows
+  what the router actually serves (`/api/v2/blog/:id`).
 
 #### 🌐 Search All Modules & Routes
 
@@ -216,7 +251,7 @@ Stand inside a provider (e.g. `users.service.ts`) and press
 
 ### 🩺 Diagnostics
 
-Two one-shot health checks that report into the Problems panel and pickers:
+Three health checks that report into the Problems panel and pickers:
 
 #### Provider Health
 
@@ -238,6 +273,33 @@ the `providers`/`controllers` array (single-line, multi-line, and both
 comma styles handled, creating the array if missing), and the import is
 added automatically. For `@Controller` classes the fix targets the
 `controllers` array.
+
+#### Route Conflicts
+
+**Diagnose · Route Conflicts** statically finds the route collisions NestJS
+itself only warns about at runtime (Nest 12's router added duplicate
+warnings — this catches them before `F5`):
+
+- **Exact duplicates** (`certain`) — same verb + same path, including
+  `:id` vs `:userId` at the same position, which match identical requests.
+- **Literal paths shadowed by param paths** (`heuristic`) —
+  `/users/me` vs `/users/:id`: a request for `/users/me` matches both, and
+  registration order decides. Only flagged when the two paths differ in
+  exactly one segment; partially-overlapping pairs that can't actually
+  swallow each other are not flagged. Heuristic results carry a
+  *"why this might be wrong"* note.
+- **`@All` overlap** (`heuristic`) — an `@All` handler covering verbs that
+  specific handlers next to it also register.
+- **Versioned twins** (`info`) — the same route under `@Version('1')` and
+  `@Version('2')` is intentional, shown for awareness only.
+
+Results appear as **Problems-panel warnings** and in a jumpable report
+grouped per conflict with both handler locations. Colliding routes carry a
+⚠ marker in the Routes tree, a `Conflicts (N)` group is pinned above the
+controllers, and once you've run the command the Problems entries refresh
+automatically as controller files change. Detection compares the paths the
+app actually serves (`setGlobalPrefix` + `@Version` included) and is
+controlled by `nestjs-devtools.diagnostics.routeConflicts`.
 
 #### API Docs Coverage
 
@@ -304,6 +366,7 @@ Navigate between files inside a NestJS module without touching the file tree.
 - **Status bar hub** — the `🦁 NestJS` button opens **every feature**
   in one searchable picker, grouped by type (Navigate / Insert / Generate /
   Diagnose / Logs) with icons and shortcut hints — no keybindings required.
+  The hub title shows the project's detected `@nestjs/core` version.
   Hidden in non-NestJS workspaces.
 - **CodeLens** above `@Module(...)` shows live file and nested module counts.
   Clicking it opens the file browser for that module. Counts are cached and
@@ -361,7 +424,7 @@ correct `providers`/`controllers` binding for the type.
 Plural suffixes are also recognized (`.guards.ts`, `.pipes.ts`, …).
 
 Beyond registered types, **every `.something.ts` suffix gets an icon** derived
-from its filename — 38 suffixes are mapped, including `main` / `bootstrap` →
+from its filename — 43 suffixes are mapped, including `main` / `bootstrap` →
 rocket, `subscriber` → broadcast, `processor` → tools, `consumer` →
 cloud-download, `cron` / `scheduler` → watch, `adapter` → combine, `provider`
 → plug, `config` → settings-gear, `schema` → symbol-field, `e2e` → browser,
@@ -399,6 +462,26 @@ foreground.
 `true` (default) — routes without an `@ApiOperation` summary are flagged
 `no docs` in the trees and searchers.
 
+### `nestjs-devtools.diagnostics.routeConflicts`
+
+`true` (default) — static route conflict detection: powers
+**Diagnose · Route Conflicts**, the ⚠ markers and `Conflicts (N)` group in
+the Routes tree, and the automatic refresh of the conflict warnings as
+controller files change.
+
+### `nestjs-devtools.routes.baseUrl`
+
+Base URL used by **Tree · Copy Full URL** and **Tree · Copy as cURL** in
+the Routes tree — combined with the detected `setGlobalPrefix` and
+`@Version`. Defaults to `http://localhost:3000` (the NestJS development
+default) when empty.
+
+```jsonc
+{
+  "nestjs-devtools.routes.baseUrl": "https://api.myapp.dev",
+}
+```
+
 ### `nestjs-devtools.logIncludeValue`
 
 `true` (default) — the selected variable is appended as the log statement's
@@ -426,7 +509,9 @@ enclosing class name. If the template doesn't reference `Logger`, the
 Message template for inserted log statements. **Type:** `string`
 (default: `"{emoji} {class} ~ {variable}"`).
 
-Placeholders: `{emoji}`, `{class}`, `{variable}`. Unknown placeholders are
+Placeholders: `{emoji}`, `{class}`, `{variable}`, `{object}` (append the
+value as an object argument — `…, { user }` — instead of a bare one;
+removed from the message). Unknown placeholders are
 left untouched; consecutive spaces collapse; quotes and backslashes in the
 output are escaped automatically.
 
@@ -539,21 +624,29 @@ src/
 │ ├── findProviderUsages.ts # DI-aware find usages via TS language service
 │ ├── injectProvider.ts # Constructor injection helper
 │ ├── providerHealth.ts # Orphan detector + go-to-providing-module
+│ ├── routeConflicts.ts # Route conflict diagnostics + Problems sync
+│ ├── routeTreeActions.ts # Copy route / full URL / cURL tree actions
 │ ├── apiDocsCoverage.ts # Routes missing @ApiOperation
-│ └── registerProviderFix.ts # Quick fix: register orphan providers
+│ ├── hub.ts # Status-bar command hub
+│ └── registerProviderFix.ts # Quick fix + tree action: register orphans
 ├── providers/
 │ ├── moduleCodeLensProvider.ts # CodeLens above @Module() with caching
 │ ├── moduleTreeProvider.ts # Sidebar Modules tree (cached roots + filter)
 │ └── routesTreeProvider.ts # Sidebar Routes tree (per-file cache + filter)
 └── utils/
-├── getEnclosingClassName.ts # Brace-depth class name detection
+├── getEnclosingClassName.ts # Strip-aware enclosing class detection
 ├── classBody.ts # Class/constructor scanning for injection
 ├── loggerDeclaration.ts # Logger import and property auto-insert
 ├── insertionPoint.ts # Statement-aware log insertion scanning
 ├── nestIndex.ts # Workspace index: classes + module registrations
-├── nestProject.ts # NestJS workspace detection
+├── routeConflicts.ts # Pure route conflict/shadow detector
+├── globalPrefix.ts # setGlobalPrefix detection (cached)
+├── moduleDirs.ts # Shared nested-module discovery
+├── nestProject.ts # NestJS workspace detection + version
 ├── quickPickHelpers.ts # ThemeIcons, grouping, breadcrumb, shortcuts
 ├── routeUtils.ts # Shared route parsing, @Controller prefix, Swagger
+├── config.ts # Central settings accessors
+├── scan.ts # Parallel reads + crash-proof findFiles
 └── targetEditor.ts # Focus-aware editor resolution
 ```
 

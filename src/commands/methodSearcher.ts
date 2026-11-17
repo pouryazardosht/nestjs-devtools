@@ -1,4 +1,6 @@
+import * as path from "path";
 import * as vscode from "vscode";
+import { stripCode } from "../utils/insertionPoint";
 import { getTargetEditor } from "../utils/targetEditor";
 import { brandIcon, brandedTitle } from "../utils/quickPickHelpers";
 import {
@@ -9,7 +11,9 @@ import {
   httpMethodIcon,
   isBalanced,
   missingDocsFlag,
+  withGlobalPrefix,
 } from "../utils/routeUtils";
+import { getGlobalPrefix } from "../utils/globalPrefix";
 
 interface MethodInfo {
   name: string;
@@ -128,13 +132,21 @@ function getSummary(details: string[]): string | undefined {
 function extractMethods(document: vscode.TextDocument): MethodInfo[] {
   const results: MethodInfo[] = [];
   const lines = document.getText().split("\n");
+  // Stripped view for decorator balancing — parens inside decorator
+  // strings (`@Get(':id)')`) must not end the accumulation early
+  const stripState = { inStr: null as string | null, inBlock: false };
+  const strippedLines = lines.map((l) => stripCode(l, stripState));
 
   let pendingDecorators: string[] = [];
   let pendingDecoratorDetails: string[] = [];
+  /** Same-line tail after a decorator (`@Get('x') async foo() {}`). */
+  let carryTail: string | undefined;
   let i = 0;
 
   while (i < lines.length) {
-    const trimmed = lines[i].trim();
+    const isCarry = carryTail !== undefined;
+    const trimmed = carryTail ?? lines[i].trim();
+    carryTail = undefined;
 
     if (
       trimmed === "" ||
@@ -142,24 +154,31 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
       trimmed.startsWith("*") ||
       trimmed.startsWith("/*")
     ) {
-      i++;
+      if (!isCarry) i++;
       continue;
     }
 
     // Collect decorators — handle multi-line decorator args, and skip the
     // consumed continuation lines so they don't get re-processed (which
     // would clear pendingDecorators and lose this decorator).
-    const decoratorMatch = trimmed.match(/^@([\w]+)(\(.*)?/);
+    const decoratorMatch = isCarry
+      ? undefined
+      : trimmed.match(/^@([\w]+)(\(.*)?/);
     if (decoratorMatch) {
       const decoratorName = decoratorMatch[1];
       let fullDecorator = trimmed;
+      let strippedDecorator = strippedLines[i].trim();
       let lastLine = i;
-      if (decoratorMatch[2] && !isBalanced(decoratorMatch[2])) {
+      const parenIdx = strippedDecorator.indexOf("(");
+      if (parenIdx !== -1 && !isBalanced(strippedDecorator.slice(parenIdx))) {
         let j = i + 1;
         while (j < lines.length) {
           fullDecorator += " " + lines[j].trim();
+          strippedDecorator += " " + strippedLines[j].trim();
           lastLine = j;
-          if (isBalanced(fullDecorator.slice(fullDecorator.indexOf("(")))) {
+          if (
+            isBalanced(strippedDecorator.slice(strippedDecorator.indexOf("(")))
+          ) {
             break;
           }
           j++;
@@ -167,13 +186,39 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
       }
       pendingDecorators.push(`@${decoratorName}`);
       pendingDecoratorDetails.push(fullDecorator);
-      i = lastLine + 1;
+
+      // Tail after the decorator's closing paren — a member on the same
+      // line (`@Get('x') async foo() {}`) was previously consumed as part
+      // of the decorator and never listed
+      let remainder = "";
+      if (parenIdx !== -1) {
+        let depth = 0;
+        for (let c = parenIdx; c < strippedDecorator.length; c++) {
+          if (strippedDecorator[c] === "(") depth++;
+          else if (strippedDecorator[c] === ")") {
+            depth--;
+            if (depth === 0) {
+              remainder = strippedDecorator.slice(c + 1).trim();
+              break;
+            }
+          }
+        }
+      }
+      if (remainder && !/^[{};]/.test(remainder)) {
+        carryTail = remainder;
+        i = lastLine;
+      } else {
+        i = lastLine + 1;
+      }
       continue;
     }
 
-    // Join up to 6 lines for multi-line signature matching
-    const lookahead = lines
-      .slice(i, Math.min(i + 6, lines.length))
+    // Join up to 6 lines for multi-line signature matching (a carried
+    // decorator tail counts as the first line)
+    const lookaheadParts = isCarry
+      ? [trimmed, ...lines.slice(i + 1, Math.min(i + 6, lines.length))]
+      : lines.slice(i, Math.min(i + 6, lines.length));
+    const lookahead = lookaheadParts
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
@@ -293,7 +338,7 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
         "new",
         "throw",
       ];
-      if (!skipKeywords.includes(name) && /^[a-z][\w]*$/.test(name)) {
+      if (!skipKeywords.includes(name) && /^[a-z_$][\w$]*$/.test(name)) {
         results.push({
           name,
           line: i,
@@ -333,9 +378,13 @@ function extractMethods(document: vscode.TextDocument): MethodInfo[] {
 function buildRouteItem(
   m: MethodInfo,
   controllerPrefix: string,
+  globalPrefix: string,
 ): MethodQuickPickItem {
   const httpMethod = getHttpMethod(m.decorators);
-  const route = getRoute(m.decoratorDetails, controllerPrefix);
+  const route = withGlobalPrefix(
+    globalPrefix,
+    getRoute(m.decoratorDetails, controllerPrefix),
+  );
   const asyncLabel = m.isAsync ? " ~" : "";
 
   const guardDecorators = m.decorators
@@ -405,6 +454,7 @@ function buildItem(m: MethodInfo): MethodQuickPickItem {
 function buildMethodItems(
   methods: MethodInfo[],
   controllerPrefix: string,
+  globalPrefix: string,
 ): MethodQuickPickItem[] {
   const items: MethodQuickPickItem[] = [];
   if (methods.length === 0) return items;
@@ -432,7 +482,7 @@ function buildMethodItems(
       kind: vscode.QuickPickItemKind.Separator,
     });
     for (const m of httpMethods) {
-      items.push(buildRouteItem(m, controllerPrefix));
+      items.push(buildRouteItem(m, controllerPrefix, globalPrefix));
     }
   }
 
@@ -485,12 +535,13 @@ export async function methodSearcherCommand() {
   }
 
   const controllerPrefix = getControllerPrefix(document.getText());
+  const globalPrefix = await getGlobalPrefix();
   const currentLine = editor.selection.active.line;
   const currentMethod = [...methods]
     .reverse()
     .find((m) => m.line <= currentLine);
 
-  const fileName = document.fileName.split("/").pop() ?? "";
+  const fileName = path.basename(document.fileName);
   const httpMethods = methods.filter((m) =>
     m.decorators.some((d) => HTTP_DECORATORS.has(d.replace("@", ""))),
   );
@@ -502,7 +553,7 @@ export async function methodSearcherCommand() {
       ? `${methods.length} methods  ·  ${routeCount} routes  ·  ${documented}/${routeCount} documented`
       : `${methods.length} methods`;
 
-  const allItems = buildMethodItems(methods, controllerPrefix);
+  const allItems = buildMethodItems(methods, controllerPrefix, globalPrefix);
 
   const quickPick = vscode.window.createQuickPick<MethodQuickPickItem>();
   quickPick.title = brandedTitle(`${fileName}  ·  ${titleSuffix}`);

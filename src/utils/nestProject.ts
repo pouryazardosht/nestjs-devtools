@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getExcludeGlob } from "../utils/config";
+import { findFilesSafe } from "./scan";
 
 let cached: Promise<boolean> | undefined;
 
@@ -15,7 +16,17 @@ let cached: Promise<boolean> | undefined;
  */
 export function isNestJsProject(): Promise<boolean> {
   if (!cached) {
-    cached = detect();
+    // A failed detection must not poison the cache for the whole session —
+    // the old code cached the rejected promise, so every later caller
+    // (status bar, pickers) kept throwing. On failure: report false this
+    // time and allow a retry on the next call.
+    cached = detect().catch((err) => {
+      cached = undefined;
+      if (err instanceof Error) {
+        console.error("[nestjs-devtools] project detection failed:", err.message);
+      }
+      return false;
+    });
   }
   return cached;
 }
@@ -68,4 +79,65 @@ export async function noNestProjectMessage(): Promise<string> {
   return (await isNestJsProject())
     ? "📁 This NestJS project has no matching files — make sure it contains *.module.ts / *.controller.ts files."
     : "📁 This workspace doesn't look like a NestJS project — no *.module.ts files and no @nestjs/* dependency found.";
+}
+
+let versionCache: Promise<string | undefined> | undefined;
+
+/**
+ * The project's `@nestjs/core` version (semver, `^`/`~` stripped) read
+ * from the workspace roots' package.json — undefined when the project
+ * doesn't depend on NestJS. Gates Nest-version-aware hints (e.g. v12's
+ * router route-conflict warnings) and shows in the hub footer.
+ */
+export function getNestVersion(): Promise<string | undefined> {
+  if (!versionCache) {
+    versionCache = detectNestVersion().catch((err) => {
+      versionCache = undefined;
+      if (err instanceof Error) {
+        console.error("[nestjs-devtools] version detection failed:", err.message);
+      }
+      return undefined;
+    });
+  }
+  return versionCache;
+}
+
+export function invalidateNestVersionCache(): void {
+  versionCache = undefined;
+}
+
+async function detectNestVersion(): Promise<string | undefined> {
+  // Root package.json first (cheapest, most common layout)
+  const roots = vscode.workspace.workspaceFolders ?? [];
+  for (const root of roots) {
+    const found = await readNestVersionFrom(
+      vscode.Uri.joinPath(root.uri, "package.json"),
+    );
+    if (found) return found;
+  }
+  // The workspace may open a PARENT folder (backend nested inside it) —
+  // scan the project's package.json files before giving up
+  const candidates = await findFilesSafe("**/package.json", getExcludeGlob(), 30);
+  for (const uri of candidates) {
+    const found = await readNestVersionFrom(uri);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+async function readNestVersionFrom(
+  uri: vscode.Uri,
+): Promise<string | undefined> {
+  try {
+    const pkg = await vscode.workspace.openTextDocument(uri);
+    const json = JSON.parse(pkg.getText());
+    const deps = { ...json.dependencies, ...json.devDependencies };
+    const raw = deps["@nestjs/core"];
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.replace(/[\^~\s]/g, "") || undefined;
+    }
+  } catch {
+    // no or invalid package.json at this location
+  }
+  return undefined;
 }
